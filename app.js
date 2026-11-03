@@ -2,162 +2,209 @@ import { createWorld, step } from './src/engine.js';
 import { propose } from './src/policy.js';
 import { exportRun } from './src/replay.js';
 import { viewFrame } from './src/presentation.js';
+import { createTownScene } from './src/town-scene.js';
 import { ZONES, dayOf, slotOf, ACTION_NAMES } from './src/config.js';
 
 const $ = id => document.getElementById(id);
-const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const percent = x => x === null ? 'NA' : `${(x * 100).toFixed(1)}%`;
-let state = createWorld();
-let frames = [viewFrame(state)], viewed = 0, selected = 'A01', timer = null, busy = false, worker = null, toastTimer;
+const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+const percent = value => value === null ? 'NA' : `${(value * 100).toFixed(1)}%`;
+const reduced = matchMedia('(prefers-reduced-motion: reduce)');
+const failureKinds = ['invalid','capacity_failure','join_failed'];
+const socialKinds = ['talk','reply','invite','accept','decline','cooperation','interaction','initiation','invitation_outcome','join'];
+const equipmentKinds = ['borrow','borrow_attempt','capacity_failure','return','release','work'];
+const lifeKinds = ['talk','reply','invite','accept','decline','cooperation','work','move','rest','walk','wait','borrow'];
+const kinds = {talk:'交談',reply:'回覆',invite:'邀請合作',accept:'接受邀請',decline:'婉拒邀請',borrow:'借用成功',borrow_attempt:'借用嘗試',capacity_failure:'設備不足',return:'提前歸還',release:'歸還完成',move:'移動',work:'設備活動',join:'加入合作',cooperation:'合作完成',interaction:'互動日證據',initiation:'發起已驗證',invitation_outcome:'邀請結算',rest:'休息',walk:'散步',wait:'等待',invalid:'無效行動',join_failed:'未能加入'};
+let state = createWorld(), frames = [viewFrame(state)], viewed = 0, selected = 'A01', activeTab = 'now';
+let timer = null, busy = false, worker = null, toastTimer;
+const frame = () => frames[viewed];
+const pastEvents = () => state.events.filter(event => event.tick <= viewed);
+const actor = id => frame().agents.find(a => a.id === id);
+const scene = createTownScene($('town-canvas'), {onSelect: id => selectAgent(id)});
 
-function toast(message) { $('toast').textContent = message; $('toast').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { $('toast').hidden = true; }, 6500); }
-function stop() { clearInterval(timer); timer = null; $('play').textContent = '▶ 開始播放'; }
+function portrait(agent) {
+  const i = Number(agent.id.slice(1)) - 1, hair = ['#49372e','#70533b','#323c39','#755044','#403d4a','#a1784d','#51412d','#694831'][i];
+  const color = /^#[a-f0-9]{6}$/i.test(agent.color) ? agent.color : '#567c56';
+  return `<svg viewBox="0 0 32 38" aria-hidden="true" shape-rendering="crispEdges"><ellipse cx="16" cy="36" rx="11" ry="2" fill="#65734618"/><path d="M10 29h5v7H9v-4h1m7-3h5v7h-6v-4h1" fill="#4b5148"/><path d="M9 19h14v13H9zM6 21h3v8H6m17-8h3v8h-3" fill="${color}"/><path d="M12 18h8v5h-8M6 27h3v4H6m17-4h3v4h-3" fill="#edc7a0"/><path d="M9 5h14v4h2v9h-3v3H10v-3H7V9h2" fill="#edc7a0"/><path d="M9 4h14v3h3v9h-3V9h-4v2h-9v5H7V7h2" fill="${hair}"/><path d="M11 14h2v2h-2m8-2h2v2h-2" fill="#3f4238"/><path d="M14 18h4v1h-4" fill="#bb866b"/>${i % 3 === 0 ? '<path d="M8 5h16v3H8" fill="#d5bb73"/>' : ''}</svg>`;
+}
+function toast(message) { $('toast').textContent = message; $('toast').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => {$('toast').hidden = true;}, 5800); }
 function controls() {
-  for (const id of ['condition', 'seed', 'reset', 'step', 'play', 'finish', 'compare', 'import', 'export']) $(id).disabled = busy;
-  if (!busy) for (const id of ['step', 'play', 'finish']) $(id).disabled = state.tick >= 120;
+  for (const id of ['reset','step','play','finish','compare','import','export','settings-open','latest']) $(id).disabled = busy;
+  $('seek').disabled = busy || !state.tick;
+  if (!busy) { $('step').disabled = viewed >= 120; $('finish').disabled = state.tick >= 120; }
+  $('play').textContent = timer ? 'Ⅱ 暫停生活' : viewed === 120 ? '↻ 從頭回放' : viewed < state.tick ? '▶ 播放回放' : viewed ? '▶ 繼續生活' : '▶ 開始生活';
+  $('playing-dot').classList.toggle('playing', !!timer);
 }
-function newRun() {
-  try {
-    const seed = Number($('seed').value), capacity = Number($('condition').value);
-    if (!$('seed').value.trim()) throw new Error('請填入設定種子');
-    const fresh = createWorld({ seed, capacity });
-    stop(); state = fresh; frames = [viewFrame(state)]; viewed = 0;
-    $('pair-panel').hidden = true; render(); toast(`已建立 ${capacity === 8 ? 'A8' : `B${capacity}`} 新場次，種子 ${seed}`);
-  } catch (e) { toast(e.message); }
-}
+function stop() { clearInterval(timer); timer = null; controls(); scene.render(frame(), {selected,playing:false,duration:Number($('speed').value)*0.45,reducedMotion:reduced.matches,animate:false}); }
+function selectAgent(id) { if (!actor(id)) return; selected = id; render({animate:false}); }
 function advance() {
   try {
-    state = step(state, propose(state)); frames.push(viewFrame(state)); viewed = state.tick; render();
-    if (state.tick >= 120) { stop(); toast('十日工程示範完成，可匯出紀錄並重新載入驗證。'); }
-  } catch (e) { stop(); toast(e.message); }
+    if (viewed < state.tick) viewed++;
+    else if (state.tick < 120) {state = step(state, propose(state)); frames.push(viewFrame(state)); viewed = state.tick;}
+    else {stop(); return;}
+    render({animate:true});
+    if (viewed === 120) {stop(); toast('十日生活已完成，可以從頭回放，或匯出完整紀錄。');}
+  } catch (error) {stop(); toast(error.message);}
+}
+function start() {
+  if (busy) return;
+  if (timer) {stop(); return;}
+  if (viewed === 120) {viewed = 0; render({animate:false});}
+  timer = setInterval(advance, Number($('speed').value)); controls(); advance();
 }
 function background(type, payload, apply) {
   stop(); busy = true; controls();
-  worker = new Worker(new URL('./src/runner-worker.js', import.meta.url), { type: 'module' });
-  toast(type === 'compare' ? '正在執行同種子的 A／B 工程配對，兩個世界與記憶各自獨立…' : type === 'import' ? '正在驗證全部事件、記憶紀錄與狀態校驗…' : '正在完成剩餘時段…');
-  const finish = () => { worker?.terminate(); worker = null; busy = false; controls(); };
-  worker.onmessage = ({ data }) => {
-    if (data.type === 'progress') { $('toast').textContent = `工程示範已結算 D${dayOf(data.tick)}，正在繼續…`; return; }
+  worker = new Worker(new URL('./src/runner-worker.js', import.meta.url), {type:'module'});
+  toast(type === 'compare' ? '正在比較同種子的兩座小鎮，世界與記憶各自獨立…' : type === 'import' ? '正在驗證紀錄與回放…' : '正在完成這十天的生活…');
+  const finish = () => {worker?.terminate(); worker = null; busy = false; controls();};
+  worker.onmessage = ({data}) => {
+    if (data.type === 'progress') {$('toast').textContent = `第 ${dayOf(data.tick)} 天已完成，正在繼續…`; return;}
     finish();
-    if (data.type === 'error') { toast(`未變更本場資料：${data.message}`); return; }
-    apply(data);
+    if (data.type === 'error') {toast(`目前場次保留：${data.message}`); return;}
+    try {apply(data);} catch (error) {toast(error.message);}
   };
-  worker.onerror = () => { finish(); toast('處理未完成，本場資料保留。請重新嘗試。'); };
-  worker.postMessage({ type, ...payload });
+  worker.onerror = () => {finish(); toast('處理未完成，原場次保留，請再試一次。');};
+  worker.postMessage({type,...payload});
 }
-
-function tree(x, y, s = 1, color = '#9cb478') {
-  return `<g transform="translate(${x},${y}) scale(${s})"><ellipse cx="0" cy="20" rx="16" ry="6" fill="#8ba07828"/><path d="M0 3v19" stroke="#8a9166" stroke-width="4"/><circle cx="-7" cy="1" r="12" fill="${color}"/><circle cx="7" cy="-3" r="13" fill="${color}"/><circle cy="-13" r="14" fill="${color}"/><path d="M-4-16q-7 2-7 9" fill="none" stroke="#ffffff35" stroke-width="3" stroke-linecap="round"/></g>`;
-}
-function house(x, y, s = 1, roof = '#668b73') {
-  return `<g transform="translate(${x},${y}) scale(${s})"><ellipse cx="55" cy="98" rx="65" ry="12" fill="#687f6220"/><rect x="4" y="36" width="108" height="58" rx="3" fill="#f8f0d9"/><path d="M-8 38 56-2l67 40Z" fill="${roof}"/><path d="M-7 38h130" stroke="#456959" stroke-width="4"/><path d="M81 5V-6h13v19" fill="${roof}"/><rect x="46" y="57" width="22" height="37" rx="3" fill="#76937e"/><circle cx="62" cy="77" r="1.6" fill="#f8e2a2"/><rect x="16" y="54" width="20" height="20" rx="2" fill="#b4c8bd" stroke="#fff9" stroke-width="4"/><rect x="79" y="54" width="20" height="20" rx="2" fill="#b4c8bd" stroke="#fff9" stroke-width="4"/><path d="M26 54v20m-10-10h20m53-10v20m-10-10h20" stroke="#fff9" stroke-width="2"/><path d="M37 96h40" stroke="#c7bc9e" stroke-width="5" stroke-linecap="round"/></g>`;
-}
-function makeTown() {
-  const foliage = [[32,70,1.3],[70,98,.9],[30,204,1],[352,74,1],[360,199,.8],[457,65,.9],[751,90,1.3],[740,208,.8],[34,360,1],[70,462,1.1],[350,453,1.1],[459,365,.8],[745,360,1.1],[750,478,.9],[440,474,.7]];
-  $('town-art').innerHTML = `<defs><pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="4" cy="4" r=".9" fill="#91a77725"/></pattern><filter id="soft"><feDropShadow dx="0" dy="2" stdDeviation="1.5" flood-color="#567159" flood-opacity=".1"/></filter></defs>
-    <rect width="800" height="540" fill="#eaf0df"/><rect width="800" height="540" fill="url(#dots)"/>
-    <rect x="19" y="49" width="355" height="197" rx="40" fill="#e4e8d4"/><rect x="433" y="49" width="349" height="197" rx="40" fill="#eae7cc"/>
-    <rect x="19" y="302" width="355" height="200" rx="40" fill="#dfebd5"/><rect x="433" y="302" width="349" height="200" rx="40" fill="#e0e8d5"/>
-    <path d="M400 0v540M0 274h800" stroke="#e2d9bc" stroke-width="34"/><path d="M400 0v540M0 274h800" stroke="#f8f1db" stroke-width="23"/><path d="M400 0v540M0 274h800" stroke="#dcd2b2" stroke-width="1.2" stroke-dasharray="6 9"/>
-    <path d="M366 252h68v44h-68Z" fill="#dce6c8"/><circle cx="400" cy="274" r="19" fill="#98af7b"/><circle cx="400" cy="274" r="13" fill="#aabf8a"/>
-    ${house(94,91,.83,'#7a9582')}${house(195,73,1,'#6d8c77')}
-    <g transform="translate(505 76)"><ellipse cx="98" cy="113" rx="108" ry="11" fill="#81926b24"/><rect x="5" y="40" width="185" height="70" rx="3" fill="#f5e7bf"/><path d="M-5 41 90-2h108v43Z" fill="#c09b59"/><path d="M-5 42h203" stroke="#9b864e" stroke-width="5"/><rect x="18" y="60" width="38" height="34" fill="#b5c7b2" stroke="#fcf5df" stroke-width="5"/><path d="M37 60v34M18 77h38" stroke="#fcf5df" stroke-width="3"/><rect x="80" y="58" width="62" height="52" fill="#869a7d"/><path d="M86 65h50m-50 8h50m-50 8h50m-50 8h50m-50 8h50" stroke="#6d836b" stroke-width="2"/><rect x="158" y="70" width="18" height="24" fill="#a5bc9f"/><circle cx="99" cy="23" r="13" fill="#f6e6ba"/><text x="99" y="29" text-anchor="middle" font-size="20" fill="#8c7e4c">⚒</text></g>
-    <g transform="translate(199 350)"><ellipse cy="28" rx="69" ry="29" fill="#cfdbc6"/><ellipse cy="20" rx="55" ry="24" fill="#92b9b3" stroke="#f5f4e5" stroke-width="9"/><ellipse cy="20" rx="35" ry="13" fill="#aed3c9"/><path d="M0 20V-13" stroke="#e3e6d6" stroke-width="12"/><ellipse cy="-13" rx="26" ry="10" fill="#b4d2c4" stroke="#f2f2e4" stroke-width="5"/><path d="M0-13v-20" stroke="#d3e2cf" stroke-width="6"/><circle cy="-34" r="6" fill="#e9ecda"/><path d="M-18-9q-9 15-6 24m41-24q9 15 6 24" stroke="#e4f4e4" fill="none" stroke-width="2"/></g>
-    <g fill="#a18e61" stroke="#f3eed8" stroke-width="2"><rect x="83" y="365" width="49" height="10" rx="2"/><rect x="270" y="365" width="49" height="10" rx="2"/></g><path d="M89 376v8m37-8v8m150-8v8m37-8v8" stroke="#7c865e" stroke-width="4"/>
-    ${house(533,324,1.1,'#759394')}<g transform="translate(684 384)"><path d="M0 0v37m0-22-15 22m15-22 15 22" stroke="#657b6d" stroke-width="3"/><rect x="-15" y="-9" width="30" height="20" rx="4" fill="#647a70"/><circle cy="1" r="7" fill="#c4d6b9"/></g>
-    ${foliage.map((p, i) => tree(...p, ['#99b47b','#aec18b','#8aa77b'][i % 3])).join('')}
-    <g font-family="Microsoft JhengHei, sans-serif" fill="#526a48" font-size="14" text-anchor="middle" font-weight="700"><text x="195" y="32">住宅區</text><text x="604" y="32">工坊</text><text x="195" y="303">公共廣場</text><text x="604" y="303">活動區</text></g>
-    <g font-size="10" font-family="Microsoft JhengHei, sans-serif" text-anchor="middle" fill="#7c8c6c"><text x="195" y="49">休息・閱讀・交談</text><text x="604" y="49" id="tools-label">製作工具</text><text x="195" y="320">散步・自在交流</text><text x="604" y="320" id="camera-label">攝影設備</text></g>`;
-  for (const a of state.agents) {
-    const button = document.createElement('button'); button.className = 'avatar'; button.id = `avatar-${a.id}`;
-    button.addEventListener('click', () => { selected = a.id; render(); }); $('avatars').append(button);
+function renderResidents(current) {
+  if (!$('residents').children.length) $('residents').innerHTML = current.agents.map(a => `<button class="resident" id="resident-${a.id}" data-agent="${a.id}"></button>`).join('');
+  for (const a of current.agents) {
+    const el = $('resident-'+a.id), p = current.trace?.proposals.find(p => p.actor === a.id);
+    el.classList.toggle('selected',a.id === selected); el.setAttribute('aria-pressed', String(a.id === selected));
+    el.setAttribute('aria-label',`${a.name}，${ZONES[a.zone].name}，${p ? ACTION_NAMES[p.action] : '準備開始'}`);
+    el.innerHTML = `<div class="mini-portrait">${portrait(a)}</div><strong>${esc(a.name)}</strong><small>${p ? ACTION_NAMES[p.action] : ZONES[a.zone].name}</small>`;
   }
 }
-
-function renderAgent(frame) {
-  const a = frame.agents.find(a => a.id === selected), t = frame.trace;
-  const p = t?.proposals.find(p => p.actor === selected), o = t?.observations[selected];
-  const outcome = p && frame.events.find(e => e.proposalId === p.id && ['invalid', 'capacity_failure', 'join_failed'].includes(e.type));
-  const held = frame.equipment.find(e => e.owner === selected);
-  const target = p?.target && frame.agents.find(a => a.id === p.target);
-  $('agent-detail').innerHTML = `<div class="agent-profile"><div class="agent-disc" style="background:${a.color}">${esc(a.name.slice(-1))}</div><div><h3>${esc(a.name)}<small>${a.id}</small></h3><p>${esc(a.interests)}</p></div></div><div class="agent-bio">${esc(a.style)}<br><span class="agent-location">${ZONES[a.zone].name}${held ? ' · 持有' + (held.type === 'tools' ? '製作工具' : '攝影設備') : ' · 未持有設備'}</span></div>
-    <div class="decision"><div class="label">${p ? `D${dayOf(frame.tick)} / 時段 ${slotOf(frame.tick)} 的行動提議` : '下一個時段，故事開始'}</div><strong>${p ? ACTION_NAMES[p.action] + (target ? ' → ' + esc(target.name) : '') : '等待第一份提議'}</strong><p>${p ? esc(p.text || (p.destination ? `前往${ZONES[p.destination].name}` : '依當前狀態採取行動。')) : '點選「下一時段」，觀察八位角色如何各自決定。'}</p>${p ? `<div class="decision-result"><span class="status-tag ${outcome ? 'bad' : ''}">${outcome ? '未成立' : '已結算'}</span><span>${outcome ? esc(outcome.reason) : '提議與結果已分開記錄'}</span></div>` : ''}</div>
-    <div class="memory-title">此步實際取得的事件<small>${o?.provided.length ?? 0} 筆</small></div><div class="memory-list">${o?.provided.length ? o.provided.map(m => `<div class="memory-item"><span>${esc(m.id)} · D${m.day} / ${slotOf(m.tick)}${m.day < dayOf(frame.tick) ? ' · 跨日' : ''}${m.score !== null ? ' · 檢索 ' + m.score.toFixed(2) : ' · 近期'}</span>${esc(m.text)}</div>`).join('') : '<div class="empty">尚未取得可見事件。<br>各角色的記憶相互隔離。</div>'}</div>
-    <p class="memory-foot">${o ? `決策前位置：${ZONES[o.actor.zone].name} · 約 ${o.estimatedTokens} tokens${o.truncated ? ' · 已依上限截取' : ''}<br>` : ''}容量採近似估算。尚未加入模型反思。</p>`;
+function renderAgent(current) {
+  const a = current.agents.find(a => a.id === selected), p = current.trace?.proposals.find(p => p.actor === selected), o = current.trace?.observations[selected];
+  const events = pastEvents(), result = p && events.filter(e => e.proposalId === p.id), failure = result?.find(e => failureKinds.includes(e.type));
+  const held = current.equipment.find(e => e.owner === selected);
+  $('agent-zone').textContent = ZONES[a.zone].name;
+  $('agent-profile').innerHTML = `<div class="agent-profile"><div class="portrait">${portrait(a)}</div><div><h2>${esc(a.name)}<small>${a.id}</small></h2><p>${esc(a.interests)}</p></div></div><p class="agent-style">${esc(a.style)}</p>`;
+  if (activeTab === 'now') {
+    const recent = events.filter(e => e.participants.includes(selected) && lifeKinds.includes(e.type)).slice(-3).reverse();
+    $('agent-detail').innerHTML = `<div class="detail-kicker">${current.tick ? `第 ${dayOf(current.tick)} 天 · 時段 ${slotOf(current.tick)} 的提議` : '新的一天，還有很多可能'}</div><h3 class="current-action">${p ? ACTION_NAMES[p.action]+(p.target ? ' · '+esc(actor(p.target)?.name ?? p.target) : '') : '準備開始今天的生活'}</h3><p class="thought">${p ? esc(p.text || (p.destination ? `前往${(ZONES[p.destination]?.name ?? p.destination)}` : '依目前狀態安排自己的活動。')) : '點選「開始生活」，看看誰會先出門，又會遇見誰。'}</p>${p ? `<div class="outcome ${failure ? 'failed' : ''}"><span class="status-dot"></span><span>${esc(failure?.reason || result?.find(e => !['borrow_attempt'].includes(e.type))?.text || '本步已結算')}</span></div>` : ''}<div class="equipment-info">${held ? `持有${held.type === 'tools' ? '製作工具' : '攝影設備'} · ${held.usableFrom > current.tick ? '下一時段可用' : '可於下一步使用'}<br>於第 ${dayOf(held.until)} 天時段 ${slotOf(held.until)} 結束歸還` : '目前未持有設備，可自由安排下一步。'}</div>${recent.length ? '<h4 class="mini-heading">最近的小事</h4>'+recent.map(e => `<div class="recent-line"><small>第 ${dayOf(e.tick)} 天 · ${kinds[e.type]}</small><button data-event="${e.id}">${esc(e.text)}</button></div>`).join('') : ''}`;
+  } else if (activeTab === 'memory') {
+    $('agent-detail').innerHTML = `<p class="memory-intro">此步決策前實際取得的事件。${o ? `當時位於${ZONES[o.actor.zone].name}，共 ${o.provided.length} 筆。` : '尚未產生第一份觀察。'}<br>綠邊表示這一步的規則策略有引用，點選可查來源。</p>${o?.provided.length ? o.provided.map(m => `<button class="memory-card ${p.citedMemoryIds.includes(m.id) ? 'cited' : ''}" data-event="${esc(m.id)}"><span>D${m.day} · 時段 ${slotOf(m.tick)} · ${m.score === null ? '近期觀察' : '較早記憶'}${m.day < dayOf(current.tick) ? ' · 跨日' : ''}</span>${esc(m.text)}${p.citedMemoryIds.includes(m.id) ? '<br><em>本步已引用</em>' : ''}</button>`).join('') : '<div class="empty"><span class="empty-icon">▤</span>生活開始後，記憶也會慢慢累積。</div>'}<p class="memory-intro">${o ? `約 ${o.estimatedTokens} tokens${o.truncated ? '，已依容量截取' : ''}。` : ''}容量為近似估算。尚未接入模型反思；引用不等於因果證據。</p>`;
+  } else {
+    const dyads = current.metrics.dyads.filter(d => d.allDays.length && [d.a,d.b].includes(selected)).sort((a,b) => b.allDays.length-a.allDays.length || a.key.localeCompare(b.key));
+    $('agent-detail').innerHTML = '<p class="memory-intro">截至這個時段，已經留下有效回覆或完成合作的交集。互動日數不代表友誼。</p>'+(dyads.length ? dyads.map(d => {const other=actor(d.a===selected ? d.b : d.a); return `<button class="connection-row" data-pair="${d.key}"><span class="mini-portrait">${portrait(other)}</span><span><strong>${esc(other.name)}</strong><small>${d.allDays.map(day => `D${day}`).join(' · ')}</small></span><span>${d.allDays.length} 日 ↗</span></button>`;}).join('') : '<div class="empty"><span class="empty-icon">↔</span>還沒有完成的互動。<br>先看看大家今天會去哪裡。</div>');
+  }
 }
-const kinds = { talk: '交談', reply: '有效回覆', invite: '合作邀請', accept: '接受', decline: '拒絕', borrow: '借用成功', borrow_attempt: '借用嘗試', capacity_failure: '容量不足', return: '提前歸還', release: '歸還完成', move: '移動', work: '設備活動', join: '加入合作', cooperation: '合作完成', interaction: '互動日證據', initiation: '發起已驗證', invitation_outcome: '邀請結算', rest: '休息', walk: '散步', wait: '等待', invalid: '無效行動', join_failed: '加入未成立' };
-const social = ['talk','reply','invite','accept','decline','cooperation','interaction','initiation','invitation_outcome','join'];
-const failedKinds = ['invalid','capacity_failure','join_failed'];
-const equipmentKinds = ['borrow','borrow_attempt','capacity_failure','return','release','work'];
-function renderEvents(frame) {
+function renderEvents() {
   const filter = $('event-filter').value;
-  const events = frame.events.filter(e => filter === 'all' || (filter === 'social' ? social : filter === 'equipment' ? equipmentKinds : failedKinds).includes(e.type)).slice(-60).reverse();
-  $('events').innerHTML = events.length ? events.map(e => `<div class="event-row"><div class="event-time">D${dayOf(e.tick)} / ${String(slotOf(e.tick)).padStart(2, '0')}<small>${e.id}</small></div><span class="event-tag ${failedKinds.includes(e.type) ? 'failed' : social.includes(e.type) ? 'social' : ''}">${kinds[e.type] || esc(e.type)}</span><div class="event-text">${esc(e.text)}</div></div>`).join('') : '<div class="empty">這裡將保存已結算的事件。<br>角色的想法，須經過引擎確認才算發生。</div>';
+  const pool = pastEvents().filter(e => filter === 'all' || (filter === 'life' ? lifeKinds : filter === 'social' ? socialKinds : filter === 'equipment' ? equipmentKinds : failureKinds).includes(e.type));
+  const events = pool.slice(-60).reverse();
+  $('events').innerHTML = events.length ? events.map(e => {
+    const a = actor(e.participants[0]);
+    return `<button class="event-row" data-event="${e.id}"><span class="event-time">DAY ${String(dayOf(e.tick)).padStart(2,'0')}<small>時段 ${String(slotOf(e.tick)).padStart(2,'0')}</small></span><span class="event-portrait">${a ? portrait(a) : ''}</span><span class="event-body"><strong>${esc(a?.name ?? '小鎮')}</strong><span class="event-tag">${kinds[e.type] || esc(e.type)}</span><p>${esc(e.text)}</p></span><span class="event-arrow">↗</span></button>`;
+  }).join('') : '<div class="empty"><span class="empty-icon">☷</span>還沒有這一類片段。<br>開始生活，讓故事慢慢發生。</div>';
+  $('events-foot').textContent = `截至時段 ${viewed} · 此類共 ${pool.length} 筆，顯示最近 ${events.length} 筆。點選可回查事件。`;
 }
-function renderNetwork(frame) {
-  const points = Object.fromEntries(frame.agents.map((a, i) => [a.id, { x: 150 + 95 * Math.cos(i * Math.PI / 4 - Math.PI / 2), y: 123 + 88 * Math.sin(i * Math.PI / 4 - Math.PI / 2) }]));
-  $('network').innerHTML = `<circle cx="150" cy="123" r="89" fill="#f5f7ef" stroke="#e2e8d8" stroke-dasharray="3 6"/>` + frame.metrics.dyads.filter(d => d.allDays.length).map(d => {
-    const a = points[d.a], b = points[d.b]; return `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="${d.qualifies ? '#3b775b' : '#b9cab0'}" stroke-width="${Math.min(4, 1 + d.allDays.length / 2)}" opacity=".8"/>`;
-  }).join('') + frame.agents.map(a => `<g><circle cx="${points[a.id].x}" cy="${points[a.id].y}" r="15" fill="${a.color}" stroke="white" stroke-width="3"/><text x="${points[a.id].x}" y="${points[a.id].y + 4}" text-anchor="middle" fill="white" font-size="10">${a.id.slice(-2)}</text><text x="${points[a.id].x}" y="${points[a.id].y + 28}" text-anchor="middle" fill="#7b8b72" font-size="9">${esc(a.name)}</text></g>`).join('');
-  $('network-stats').innerHTML = `<div><strong>${frame.metrics.completedCooperations}</strong>已完成合作</div><div><strong>${frame.metrics.capacityFailures}</strong>容量失敗</div><div><strong>${frame.metrics.qualifiedLinks}</strong>末五日合格對</div>`;
+function renderNetwork(current) {
+  const points = Object.fromEntries(current.agents.map((a,i) => [a.id,{x:180+114*Math.cos(i*Math.PI/4-Math.PI/2),y:130+90*Math.sin(i*Math.PI/4-Math.PI/2)}]));
+  const dyads = current.metrics.dyads.filter(d => d.allDays.length);
+  $('network').innerHTML = '<circle cx="180" cy="130" r="91" fill="#eef0e5" stroke="#d9e1cb" stroke-dasharray="3 6"/>'+dyads.map(d => {const a=points[d.a],b=points[d.b];return `<g data-pair="${d.key}" role="button" tabindex="0" aria-label="${esc(actor(d.a).name)}與${esc(actor(d.b).name)}，${d.allDays.length}個互動日"><line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="transparent" stroke-width="14"/><line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="${d.qualifies ? '#659259' : '#aebf98'}" stroke-width="${Math.min(4,1+d.allDays.length/2)}" opacity=".7"/></g>`;}).join('')+current.agents.map(a => `<g data-agent="${a.id}" role="button" tabindex="0" aria-label="查看${esc(a.name)}"><circle cx="${points[a.id].x}" cy="${points[a.id].y}" r="17" fill="${a.color}" stroke="${a.id===selected ? '#d3b86e' : '#fafbf4'}" stroke-width="3"/><text x="${points[a.id].x}" y="${points[a.id].y+4}" text-anchor="middle" fill="white" font-size="11">${esc(a.name.slice(-1))}</text><text x="${points[a.id].x}" y="${points[a.id].y+32}" text-anchor="middle" fill="#7f9073" font-size="10">${esc(a.name)}</text></g>`).join('');
+  $('pair-links').innerHTML = dyads.length ? dyads.sort((a,b)=>b.allDays.length-a.allDays.length).map(d => `<button data-pair="${d.key}">${esc(actor(d.a).name)} × ${esc(actor(d.b).name)} · ${d.allDays.length} 日</button>`).join('') : '<p class="memory-intro">交集會隨著生活逐步出現。</p>';
+  $('network-stats').innerHTML = `<div><strong>${dyads.length}</strong>有過交集的組合</div><div><strong>${current.metrics.completedCooperations}</strong>已完成合作</div>`;
 }
-function render() {
-  const frame = frames[viewed], m = frame.metrics;
-  $('progress-value').textContent = frame.tick ? `第 ${dayOf(frame.tick)} 日` : '準備開始';
-  $('progress-detail').textContent = `${frame.tick} / 120 時段${frame.tick ? ` · 本日時段 ${slotOf(frame.tick)}` : ''}`;
-  $('progress-bar').style.width = `${frame.tick / 120 * 100}%`;
-  $('equipment-value').innerHTML = `${frame.equipment.filter(e => e.owner).length} <em>/ ${frame.equipment.length}</em>`;
+function render({animate=false} = {}) {
+  const current=frame(),m=current.metrics;
+  $('day-label').textContent = `第 ${String(dayOf(current.tick)).padStart(2,'0')} 天`;
+  const slot=slotOf(current.tick);
+  $('phase-label').textContent = current.tick ? ['清晨，慢慢醒來','上午，各自忙碌','午後，走走聊聊','傍晚，準備休息'][Math.floor((slot-1)/3)]+` · ${slot}/12` : '清晨，準備出門';
+  $('condition-label').textContent = `${current.config.capacity===8 ? 'A8' : 'B'+current.config.capacity} · 每類 ${current.config.capacity} 件設備`;
+  $('timeline-label').textContent = `第 ${dayOf(current.tick)} 天 · ${current.tick ? slot : 0} / 12`;
+  $('timeline-total').textContent = `${current.tick} / 120`;
+  $('seek').max=state.tick; $('seek').value=viewed;
+  $('view-mode').textContent = busy ? '正在處理' : viewed<state.tick ? '歷史回放' : state.tick===120 ? '十日完成' : state.tick ? '最新進度' : '尚未開始';
+  $('latest').hidden = viewed===state.tick;
+  renderResidents(current); renderAgent(current); renderEvents(); renderNetwork(current);
+  $('progress-value').textContent = `${current.tick} / 120`;
   $('interaction-value').textContent = m.interactionDays;
   $('y-value').textContent = m.final ? percent(m.y) : '—';
-  $('y-detail').textContent = m.final ? `${m.qualifiedLinks} / 28 對 · 工程示範值` : `截至目前 ${m.qualifiedLinks} / 28 對 · 尚未完成`;
-  $('clock-badge').textContent = frame.tick ? `DAY ${String(dayOf(frame.tick)).padStart(2, '0')} · ${String(slotOf(frame.tick)).padStart(2, '0')} / 12` : '初始狀態';
-  $('map-condition').textContent = `${frame.config.capacity === 8 ? 'A8' : 'B' + frame.config.capacity} / 每類 ${frame.config.capacity} 件`;
-  for (const [type, label] of [['tools', '製作工具'], ['camera', '攝影設備']]) $(type + '-label').textContent = `${label} · 可借 ${frame.equipment.filter(e => e.type === type && !e.owner).length} / ${frame.config.capacity}`;
-  const centers = { home: [195, 207], workshop: [602, 207], plaza: [195, 440], studio: [602, 448] };
-  for (const zone of Object.keys(ZONES)) {
-    const group = frame.agents.filter(a => a.zone === zone);
-    group.forEach((a, i) => {
-      const cols = Math.min(4, group.length), x = centers[zone][0] + ((i % 4) - (cols - 1) / 2) * 56, y = centers[zone][1] + Math.floor(i / 4) * 39;
-      const el = $('avatar-' + a.id); el.style.left = `${x / 8}%`; el.style.top = `${y / 5.4}%`; el.style.setProperty('--avatar', a.color);
-      el.innerHTML = esc(a.name.slice(-1)) + (frame.equipment.some(e => e.owner === a.id) ? '<span class="held-dot"></span>' : '');
-      el.dataset.label = a.name; el.setAttribute('aria-label', `${a.id} ${a.name}，${ZONES[zone].name}`); el.classList.toggle('selected', a.id === selected);
-    });
-  }
-  $('seek').max = state.tick; $('seek').value = viewed; $('seek').disabled = busy || state.tick === 0;
-  $('timeline-label').textContent = `回放 ${viewed} / ${state.tick}`; $('view-mode').textContent = viewed === state.tick ? '最新狀態' : '歷史回放';
-  renderAgent(frame); renderEvents(frame); renderNetwork(frame); controls();
+  $('y-detail').textContent = m.final ? `${m.qualifiedLinks} / 28 對 · 工程示範值` : '尚未完成十日，不顯示最終指標';
+  $('core-value').textContent = m.final ? m.persistentCores.length : '—';
+  $('research-detail').textContent = `設備借用：${m.borrowAttempts} 次合法嘗試、${m.capacityFailures} 次容量失敗（${percent(m.capacityFailureRate)}）。合作完成率：${percent(m.cooperationRate)}，分母 ${m.observedInvitations}，尚未到期 ${m.rightCensoredInvitations}。`+(m.final ? ` 連結門檻 2／3／4 日：${[2,3,4].map(n=>percent(m.sensitivity[n])).join('／')}。` : '')+' 全部數值只使用目前回放位置之前的事件。';
+  controls(); scene.render(current,{selected,playing:!!timer,duration:Number($('speed').value)*0.45,reducedMotion:reduced.matches,animate});
 }
-
-$('reset').addEventListener('click', newRun);
-$('condition').addEventListener('change', newRun);
-$('step').addEventListener('click', () => { stop(); advance(); });
-$('play').addEventListener('click', () => {
-  if (timer) { stop(); return; }
-  if (viewed !== state.tick) { viewed = state.tick; render(); }
-  $('play').textContent = 'Ⅱ 暫停播放'; timer = setInterval(advance, Number($('speed').value));
+function evidenceCard(e) {
+  return `<article class="evidence-card"><small>D${dayOf(e.tick)} · 時段 ${slotOf(e.tick)} · ${kinds[e.type] || esc(e.type)} · ${e.id}</small><p>${esc(e.text)}</p><div class="evidence-meta">${e.participants.map(id=>esc(actor(id)?.name ?? id)).join('、')}${e.zone ? ' · '+ZONES[e.zone].name : ''}${e.failure_reason || e.reason ? ' · '+esc(e.failure_reason || e.reason) : ''}</div><button data-jump="${e.tick}">回到這個時段 →</button></article>`;
+}
+function showEvent(id) {
+  const e=pastEvents().find(e=>e.id===id); if(!e) return;
+  stop(); $('evidence-title').textContent = '這段日常的來源';
+  const related=e.sourceId && pastEvents().find(x=>x.id===e.sourceId);
+  $('evidence-body').innerHTML = evidenceCard(e)+(related ? '<p class="evidence-note">對應的互動事件</p>'+evidenceCard(related) : '')+`<p class="evidence-note">場次 ${state.config.seed} · ${state.config.capacity===8 ? 'A8' : 'B'+state.config.capacity}。這是已保存的世界事件，回放不會重新產生對話。</p>`;
+  $('evidence-dialog').showModal();
+}
+function showPair(key) {
+  const dyad=frame().metrics.dyads.find(d=>d.key===key);if(!dyad) return;
+  stop(); $('evidence-title').textContent = `${actor(dyad.a).name}與${actor(dyad.b).name}的交集`;
+  const interactions=pastEvents().filter(e=>e.type==='interaction' && e.pair===key);
+  // Resolve source events from the full prefix; viewFrame intentionally keeps only 180 recent events.
+  const sources=interactions.map(e=>pastEvents().find(s=>s.id===e.sourceId) ?? e);
+  $('evidence-body').innerHTML = `<p class="evidence-note">共 ${dyad.allDays.length} 個互動日（${dyad.allDays.map(d=>'D'+d).join('、') || '尚無'}）。以下列出全部 ${sources.length} 次有效回覆或合作證據；同一天最多計一個互動日。這些接觸不等於友誼。</p>`+sources.slice().reverse().map(evidenceCard).join('');
+  $('evidence-dialog').showModal();
+}
+function mode(research) {
+  $('research').hidden=!research;
+  for(const name of ['life','research']) {const active=research===(name==='research');$('mode-'+name).classList.toggle('active',active);$('mode-'+name).setAttribute('aria-pressed',String(active));}
+  if(research) $('research').scrollIntoView({behavior:reduced.matches?'instant':'smooth',block:'start'});
+  else $('town-section').scrollIntoView({behavior:reduced.matches?'instant':'smooth',block:'start'});
+}
+$('play').addEventListener('click',start);
+$('step').addEventListener('click',()=>{stop();advance();});
+$('latest').addEventListener('click',()=>{stop();viewed=state.tick;render();});
+$('speed').addEventListener('change',()=>{if(timer){clearInterval(timer);timer=setInterval(advance,Number($('speed').value));}});
+$('seek').addEventListener('input',()=>{stop();viewed=Number($('seek').value);render();});
+$('event-filter').addEventListener('change',renderEvents);
+$('mode-life').addEventListener('click',()=>mode(false));$('mode-research').addEventListener('click',()=>mode(true));
+for(const tab of ['now','memory','connections']) $('tab-'+tab).addEventListener('click',()=>{
+  activeTab=tab;
+  for(const name of ['now','memory','connections']) {const active=name===tab;$('tab-'+name).classList.toggle('active',active);$('tab-'+name).setAttribute('aria-selected',String(active));}
+  $('agent-detail').setAttribute('aria-labelledby','tab-'+tab);renderAgent(frame());
 });
-$('speed').addEventListener('change', () => { if (timer) { clearInterval(timer); timer = setInterval(advance, Number($('speed').value)); } });
-$('seek').addEventListener('input', () => { stop(); viewed = Number($('seek').value); render(); });
-$('event-filter').addEventListener('change', () => renderEvents(frames[viewed]));
-$('finish').addEventListener('click', () => background('finish', { state }, result => { state = result.state; frames.push(...result.frames); viewed = state.tick; render(); toast('十日完成。指標僅為規則型工程示範，完整紀錄可匯出。'); }));
-$('compare').addEventListener('click', () => background('compare', { seed: state.config.seed, capacity: state.config.capacity === 3 ? 3 : 2 }, ({ pair }) => {
-  const panel = $('pair-panel'); panel.hidden = false;
-  panel.innerHTML = `<div class="panel-heading"><div><span class="section-number">AB</span><h2>同種子的工程配對</h2></div><span class="small-label">SEED ${pair.seed}</span></div><div class="pair-body"><table><thead><tr><th>條件</th><th>主要指標 Y</th><th>容量失敗 / 合法嘗試</th><th>已完成合作</th></tr></thead><tbody>${[['A8', pair.a], ['B' + pair.lowCapacity, pair.b]].map(([name, m]) => `<tr><td>${name}</td><td>${percent(m.y)}</td><td>${m.capacityFailures} / ${m.borrowAttempts}</td><td>${m.completedCooperations}</td></tr>`).join('')}</tbody></table><p class="delta">B − A = ${pair.deltaPercentagePoints > 0 ? '+' : ''}${pair.deltaPercentagePoints.toFixed(2)} 個百分點</p><p>${pair.note} 本次比較不會覆蓋目前場次。</p></div>`;
-  panel.scrollIntoView({ behavior: 'smooth', block: 'center' }); toast('A／B 工程配對完成。');
-}));
-$('export').addEventListener('click', () => {
-  stop(); const blob = new Blob([JSON.stringify(exportRun(state))], { type: 'application/json' });
-  const url = URL.createObjectURL(blob), a = document.createElement('a'); a.href = url; a.download = `ai-town-demo-${state.config.seed}-capacity${state.config.capacity}-tick${state.tick}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1500);
-  toast(`已匯出 ${state.tick} 個已結算時段的完整紀錄。`);
-});
-$('import').addEventListener('click', () => $('file').click());
-$('file').addEventListener('change', async event => {
-  const file = event.target.files[0]; event.target.value = ''; if (!file) return;
-  if (file.size > 20 * 1024 * 1024) { toast('檔案超過 20 MB 上限。'); return; }
+$('settings-open').addEventListener('click',()=>{stop();$('seed').value=state.config.seed;$('condition').value=state.config.capacity;$('settings-error').textContent='';$('settings-dialog').showModal();});
+$('settings-form').addEventListener('submit',event=>{
+  event.preventDefault();if(busy)return;
   try {
-    const data = JSON.parse(await file.text());
-    background('import', { data }, result => { state = result.state; frames = result.frames; viewed = state.tick; $('seed').value = state.config.seed; $('condition').value = state.config.capacity; $('pair-panel').hidden = true; render(); toast('回放驗證通過：事件、記憶與狀態一致。'); });
-  } catch { toast('無法讀取 JSON，請選擇本 demo 匯出的回放檔案。'); }
+    if(!$('seed').value.trim()) throw new Error('請輸入場次種子。');
+    const fresh=createWorld({seed:Number($('seed').value),capacity:Number($('condition').value)});
+    stop();state=fresh;frames=[viewFrame(state)];viewed=0;$('pair-panel').hidden=true;
+    $('settings-dialog').close();render();toast('新小鎮準備好了，按「開始生活」觀察第一天。');
+  } catch(error){$('settings-error').textContent=error.message;}
 });
-window.addEventListener('pagehide', () => { stop(); worker?.terminate(); });
-makeTown(); render();
+$('fullscreen').addEventListener('click',async()=>{
+  try{if(document.fullscreenElement)await document.exitFullscreen();else await document.querySelector('.world-panel').requestFullscreen();}catch{toast('目前瀏覽器不支援全螢幕，仍可在原畫面操作。');}
+});
+$('finish').addEventListener('click',()=>background('finish',{state},result=>{state=result.state;frames.push(...result.frames);viewed=state.tick;render();toast('十日已完成。拖動時間軸，或按「從頭回放」觀看保存的生活。');}));
+$('compare').addEventListener('click',()=>background('compare',{seed:state.config.seed,capacity:state.config.capacity===3?3:2},({pair})=>{
+  $('pair-panel').hidden=false;
+  $('pair-panel').innerHTML=`<h3>同種子的兩座小鎮 <span class="mini-label">SEED ${pair.seed}</span></h3><table><thead><tr><th>設備條件</th><th>主要指標 Y</th><th>容量失敗／嘗試</th><th>完成合作</th></tr></thead><tbody>${[['A8',pair.a],['B'+pair.lowCapacity,pair.b]].map(([name,m])=>`<tr><td>${name}</td><td>${percent(m.y)}</td><td>${m.capacityFailures} / ${m.borrowAttempts}</td><td>${m.completedCooperations}</td></tr>`).join('')}</tbody></table><p class="delta">B − A = ${pair.deltaPercentagePoints>0?'+':''}${pair.deltaPercentagePoints.toFixed(2)} 個百分點</p><p>${esc(pair.note)} 目前觀看的場次保留。</p>`;
+  toast('配對示範完成。數值來自離線策略，不是正式研究結果。');
+}));
+$('export').addEventListener('click',()=>{
+  stop();const blob=new Blob([JSON.stringify(exportRun(state))],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');
+  link.href=url;link.download=`ai-town-demo-${state.config.seed}-capacity${state.config.capacity}-tick${state.tick}.json`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1500);toast(`已匯出全部 ${state.tick} 個已執行時段，包含完整提議與記憶紀錄。`);
+});
+$('import').addEventListener('click',()=>$('file').click());
+$('file').addEventListener('change',async event=>{
+  const file=event.target.files[0];event.target.value='';if(!file)return;
+  if(file.size>20*1024*1024){toast('檔案超過 20 MB 上限。');return;}
+  try{const data=JSON.parse(await file.text());background('import',{data},result=>{state=result.state;frames=result.frames;viewed=0;$('pair-panel').hidden=true;render();toast('回放驗證通過。按「播放回放」從第一天開始觀看。');});}catch{toast('無法讀取 JSON，請選擇本 demo 匯出的紀錄。');}
+});
+document.addEventListener('click',event=>{
+  const target=event.target.closest('[data-agent],[data-event],[data-pair],[data-jump],[data-close]');if(!target)return;
+  if(target.dataset.close)$(target.dataset.close).close();
+  else if(target.dataset.agent)selectAgent(target.dataset.agent);
+  else if(target.dataset.event)showEvent(target.dataset.event);
+  else if(target.dataset.pair)showPair(target.dataset.pair);
+  else if(target.dataset.jump){stop();viewed=Number(target.dataset.jump);$('evidence-dialog').close();render();$('town-section').scrollIntoView({behavior:reduced.matches?'instant':'smooth'});}
+});
+$('network').addEventListener('keydown',event=>{if(['Enter',' '].includes(event.key)&&event.target.matches('[role="button"]')){event.preventDefault();event.target.dispatchEvent(new MouseEvent('click',{bubbles:true}));}});
+document.querySelector('.inspector-tabs').addEventListener('keydown',event=>{
+  if(!['ArrowRight','ArrowLeft','Home','End'].includes(event.key))return;
+  event.preventDefault();const tabs=['now','memory','connections'];let i=tabs.indexOf(activeTab);i=event.key==='Home'?0:event.key==='End'?2:(i+(event.key==='ArrowRight'?1:2))%3;$('tab-'+tabs[i]).click();$('tab-'+tabs[i]).focus();
+});
+window.addEventListener('pagehide',()=>{stop();worker?.terminate();scene.destroy();});
+render();

@@ -1,10 +1,12 @@
 {
   "name": "ai-town-demo",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "AI 小鎮：研究規則、事件重播與設備條件比較的離線工程 demo",
-  "engines": { "node": ">=22" },
+  "description": "AI 小鎮 V5：八位居民日常、可追溯互動與回放的離線 HTML 展示",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "start": "node server.mjs",
     "test": "node --test",
