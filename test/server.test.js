@@ -13,8 +13,22 @@ test('local server serves the demo and excludes repository/private files', { tim
   assert.match(await response.text(), /AI 小鎮/);
   assert.match(response.headers.get('content-security-policy'), /script-src 'self'/);
   assert.equal((await fetch(base + '/src/engine.js')).status, 200);
-  for (const path of ['/.git/config', '/.env', '/package.json', '/output/demo-replay.json', '/src/../../.env']) {
-    assert.equal((await fetch(base + path)).status, 404);
+  const phaser = await fetch(base + '/vendor/phaser.js');
+  assert.equal(phaser.status, 200);
+  assert.match(phaser.headers.get('content-type'), /(?:text|application)\/javascript/);
+  const bundle = await phaser.text();
+  assert.match(bundle, /Phaser/);
+  assert.match(bundle, /4\.2\.1/);
+  const license = await fetch(base + '/vendor/phaser.LICENSE.txt');
+  assert.equal(license.status, 200);
+  assert.match(await license.text(), /MIT License/);
+  for (const path of [
+    '/.git/config', '/.env', '/package.json', '/package-lock.json',
+    '/output/demo-replay.json', '/src/../../.env',
+    '/node_modules/phaser/package.json', '/node_modules/phaser/dist/phaser.min.js',
+    '/vendor/package.json', '/vendor/phaser.js.map', '/vendor/../node_modules/phaser/package.json',
+  ]) {
+    assert.equal((await fetch(base + path)).status, 404, `${path} must stay private`);
   }
   assert.equal((await fetch(base, { method: 'POST' })).status, 405);
 });

@@ -19,7 +19,31 @@ let timer = null, busy = false, worker = null, toastTimer;
 const frame = () => frames[viewed];
 const pastEvents = () => state.events.filter(event => event.tick <= viewed);
 const actor = id => frame().agents.find(a => a.id === id);
-const scene = createTownScene($('town-canvas'), {onSelect: id => selectAgent(id)});
+let cameraFollowing = false;
+const scene = createTownScene($('town-stage'), {
+  onSelect: id => selectAgent(id),
+  onCameraChange: ({zoom,following}) => {
+    cameraFollowing = following;
+    $('zoom-level').textContent = `${Math.round(zoom*100)}%`;
+    $('zoom-out').disabled = zoom <= 1;
+    $('zoom-in').disabled = zoom >= 2.5;
+    $('camera-follow').setAttribute('aria-pressed', String(following));
+    $('camera-follow').textContent = following ? '◎ 正在跟隨' : '◎ 跟隨居民';
+  },
+  onReady: ({renderer,version}) => {
+    $('scene-status').hidden = true;
+    $('town-stage').dataset.renderer = renderer;
+    $('town-stage').dataset.phaserVersion = version;
+    for(const id of ['zoom-in','camera-reset','camera-follow']) $(id).disabled = false;
+  },
+  onError: error => {
+    console.error('Town renderer:', error);
+    $('scene-status').hidden = false;
+    $('scene-status').classList.add('failed');
+    $('scene-status').textContent = '小鎮畫面未能載入，請重新整理頁面。居民資料與生活紀錄仍可從下方查看。';
+    for(const id of ['zoom-in','zoom-out','camera-reset','camera-follow']) $(id).disabled = true;
+  },
+});
 
 function portrait(agent) {
   const i = Number(agent.id.slice(1)) - 1, hair = ['#49372e','#70533b','#323c39','#755044','#403d4a','#a1784d','#51412d','#694831'][i];
@@ -41,7 +65,7 @@ function advance() {
     if (viewed < state.tick) viewed++;
     else if (state.tick < 120) {state = step(state, propose(state)); frames.push(viewFrame(state)); viewed = state.tick;}
     else {stop(); return;}
-    render({animate:true});
+    render({animate:viewed!==120});
     if (viewed === 120) {stop(); toast('十日生活已完成，可以從頭回放，或匯出完整紀錄。');}
   } catch (error) {stop(); toast(error.message);}
 }
@@ -174,9 +198,18 @@ $('settings-form').addEventListener('submit',event=>{
     $('settings-dialog').close();render();toast('新小鎮準備好了，按「開始生活」觀察第一天。');
   } catch(error){$('settings-error').textContent=error.message;}
 });
-$('fullscreen').addEventListener('click',async()=>{
-  try{if(document.fullscreenElement)await document.exitFullscreen();else await document.querySelector('.world-panel').requestFullscreen();}catch{toast('目前瀏覽器不支援全螢幕，仍可在原畫面操作。');}
-});
+function expandTown(expanded) {
+  document.querySelector('.world-panel').classList.toggle('expanded', expanded);
+  document.body.classList.toggle('town-expanded', expanded);
+  $('fullscreen').setAttribute('aria-pressed', String(expanded));
+  $('fullscreen').innerHTML = expanded ? '↙ <span>收回小鎮</span>' : '⛶ <span>放大小鎮</span>';
+}
+$('fullscreen').addEventListener('click',()=>expandTown(!document.body.classList.contains('town-expanded')));
+document.addEventListener('keydown',event=>{if(event.key==='Escape')expandTown(false);});
+$('zoom-in').addEventListener('click',()=>scene.zoomIn());
+$('zoom-out').addEventListener('click',()=>scene.zoomOut());
+$('camera-reset').addEventListener('click',()=>scene.resetCamera());
+$('camera-follow').addEventListener('click',()=>scene.setFollow(!cameraFollowing));
 $('finish').addEventListener('click',()=>background('finish',{state},result=>{state=result.state;frames.push(...result.frames);viewed=state.tick;render();toast('十日已完成。拖動時間軸，或按「從頭回放」觀看保存的生活。');}));
 $('compare').addEventListener('click',()=>background('compare',{seed:state.config.seed,capacity:state.config.capacity===3?3:2},({pair})=>{
   $('pair-panel').hidden=false;

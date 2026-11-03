@@ -1,138 +1,169 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createTownScene } from '../src/town-scene.js';
 import { createWorld, step } from '../src/engine.js';
 import { propose } from '../src/policy.js';
 import { viewFrame } from '../src/presentation.js';
+import {
+  WORLD_SIZE, characterPosition, presentationPath, samplePath,
+  directionBetween, characterPresentation, visibleUtterances,
+  isContinuousFrame, clampZoom,
+} from '../src/town-view-model.js';
 
-// Record Canvas operations without depending on a browser or raster library.
-// Geometry and text are observable outputs; the engine still produces real frames.
-function contextRecorder() {
-  const calls = [];
-  const context = new Proxy({}, {
-    get(target, name) {
-      return target[name] ?? ((...args) => {
-        for (const value of args) if (typeof value === 'number') {
-          assert.ok(Number.isFinite(value), `${String(name)} received a non-finite coordinate`);
-        }
-        calls.push({ name, args });
-      });
-    },
-    set(target, name, value) { target[name] = value; return true; },
-  });
-  return { context, calls };
+const action = (actor, action, more = {}) => ({ actor, action, ...more });
+function inZone(zone = 'workshop') {
+  const state = createWorld();
+  state.agents.forEach(agent => { agent.zone = zone; });
+  return state;
+}
+function assertPoint(point) {
+  assert.equal(point.length, 2);
+  assert.ok(point.every(Number.isFinite), `non-finite point: ${point}`);
+  assert.ok(point[0] >= 0 && point[0] <= WORLD_SIZE.width);
+  assert.ok(point[1] >= 0 && point[1] <= WORLD_SIZE.height);
 }
 
-function harness(t, { dpr = 1, box = { left: 0, top: 0, width: 1000, height: 650 } } = {}) {
-  const display = contextRecorder(), background = contextRecorder();
-  const listeners = new Map(), frames = new Map();
-  let nextId = 0, scene;
-  const canvas = {
-    // Match the HTML's already-correct dimensions: DPR 1 must still build scenery.
-    width: 1000, height: 650, style: {},
-    getContext: () => display.context,
-    setAttribute() {},
-    addEventListener: (name, listener) => listeners.set(name, listener),
-    removeEventListener: name => listeners.delete(name),
-    getBoundingClientRect: () => box,
-  };
-  const backdrop = { width: 300, height: 150, getContext: () => background.context };
-  const globals = {
-    window: { devicePixelRatio: dpr },
-    document: { createElement: tag => { assert.equal(tag, 'canvas'); return backdrop; } },
-    requestAnimationFrame: callback => { const id = ++nextId; frames.set(id, callback); return id; },
-    cancelAnimationFrame: id => frames.delete(id),
-    ResizeObserver: undefined,
-  };
-  const originals = new Map(Object.keys(globals).map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
-  Object.assign(globalThis, globals);
-  t.after(() => {
-    scene?.destroy();
-    for (const [key, descriptor] of originals) {
-      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
-      else delete globalThis[key];
-    }
-  });
-  return {
-    canvas, backdrop, display, background, listeners,
-    create: options => (scene = createTownScene(canvas, options)),
-    flush() {
-      let iterations = 0;
-      while (frames.size) {
-        assert.ok(++iterations < 5, 'settled frame kept scheduling animation');
-        const batch = [...frames.values()]; frames.clear();
-        for (const callback of batch) callback(performance.now() + 100_000);
-      }
-    },
-    dispatch(name, event) { listeners.get(name)?.(event); },
-    setBox(value) { box = value; },
-  };
-}
-
-test('DPR 1 initializes scenery even with correct canvas dimensions, and rendering never changes frames', t => {
-  const h = harness(t), scene = h.create();
-  assert.equal(h.backdrop.width, 1000);
-  assert.equal(h.backdrop.height, 650);
-  assert.ok(h.background.calls.some(c => c.name === 'fillRect' && c.args[2] === 1000 && c.args[3] === 650), 'landscape background was not painted');
-  assert.ok(h.background.calls.some(c => c.name === 'fillText' && c.args[0] === '工坊'), 'landscape landmarks were not painted');
-  let state = createWorld();
+// Phaser renders these values in the browser. Testing real engine frames here
+// keeps the display/research boundary verifiable without a mock game engine.
+test('the full 10-day run has finite display geometry and presentation never changes frames', () => {
+  let state = createWorld(), previous;
   for (let tick = 0; tick <= 120; tick++) {
     const frame = viewFrame(state), before = JSON.stringify(frame);
-    scene.render(frame, { selected: 'A01', duration: 600 });
-    h.flush();
-    assert.equal(JSON.stringify(frame), before, `render changed simulation data at tick ${tick}`);
+    for (const agent of frame.agents) {
+      const position = characterPosition(agent, frame);
+      assertPoint(position);
+      const display = characterPresentation(frame, agent.id);
+      assert.ok(['idle', 'talk', 'rest', 'work', 'camera'].includes(display.pose));
+      if (previous) {
+        const oldAgent = previous.agents.find(a => a.id === agent.id);
+        const from = characterPosition(oldAgent, previous);
+        const path = presentationPath(from, position, oldAgent.zone, agent.zone);
+        path.forEach(assertPoint);
+        assert.deepEqual(samplePath(path, 0), from);
+        assert.deepEqual(samplePath(path, 1), position);
+        for (const progress of [0.1, 0.5, 0.9]) assertPoint(samplePath(path, progress));
+        assert.ok(['up', 'down', 'left', 'right'].includes(directionBetween(from, position)));
+      }
+    }
+    for (const event of visibleUtterances(frame, 'A01')) {
+      assert.equal(event.tick, tick);
+      assert.equal(event.success, true);
+    }
+    assert.equal(JSON.stringify(frame), before, `display helpers changed tick ${tick}`);
+    previous = frame;
     if (tick < 120) state = step(state, propose(state));
   }
-  assert.equal(h.display.calls.filter(c => c.name === 'drawImage').length, 121);
-  scene.destroy();
-  assert.equal(h.listeners.size, 0, 'destroy must remove interaction listeners');
 });
 
-test('speech bubbles show delivered utterances but never a rejected action proposal', t => {
-  const h = harness(t), scene = h.create();
-  const initial = createWorld();
-  initial.agents.forEach(a => { a.zone = 'home'; });
+test('only delivered utterances become bubbles or talking poses, including when replaying a past step', () => {
+  const initial = inZone('home');
   initial.agents.find(a => a.id === 'A03').zone = 'workshop';
   const actual = '這是真正送出的對話', rejected = '這句未送達不可展示';
-  const state = step(initial, [
-    { actor: 'A01', action: 'talk', target: 'A02', text: actual },
-    { actor: 'A03', action: 'talk', target: 'A04', text: rejected },
+  const spoken = step(initial, [
+    action('A01', 'talk', { target: 'A02', text: actual }),
+    action('A03', 'talk', { target: 'A04', text: rejected }),
   ]);
-  assert.ok(state.events.some(e => e.type === 'invalid' && e.participants[0] === 'A03'));
-  scene.render(viewFrame(state), { selected: 'A01', animate: false, reducedMotion: true });
-  h.flush();
-  const drawnText = h.display.calls.filter(c => c.name === 'fillText').map(c => c.args[0]);
-  assert.ok(drawnText.includes(actual), 'valid dialogue should be visible');
-  assert.ok(!drawnText.includes(rejected), 'unexecuted proposal must not become dialogue');
+  const past = viewFrame(spoken);
+  assert.deepEqual(visibleUtterances(past, 'A01').map(e => e.text), [actual]);
+  assert.equal(characterPresentation(past, 'A01').pose, 'talk');
+  assert.equal(characterPresentation(past, 'A01').target, 'A02');
+  assert.equal(characterPresentation(past, 'A03').failed, true);
+  assert.equal(characterPresentation(past, 'A03').pose, 'idle');
+  assert.equal(characterPresentation(past, 'A03').delivered, undefined);
+
+  const message = spoken.messages.find(m => m.from === 'A01');
+  const replied = step(spoken, [action('A02', 'reply', {
+    target: 'A01', replyTo: message.id, conversationId: message.conversationId, text: '現在才回覆',
+  })]);
+  const current = viewFrame(replied);
+  assert.deepEqual(visibleUtterances(current, 'A02').map(e => e.text), ['現在才回覆']);
+  assert.deepEqual(visibleUtterances(viewFrame(step(replied)), 'A01'), []);
+  assert.deepEqual(visibleUtterances(past, 'A01').map(e => e.text), [actual]);
 });
 
-test('character selection maps through vertical and horizontal contain letterboxing', t => {
-  const h = harness(t, { dpr: 2 }), selected = [];
-  const scene = h.create({ onSelect: id => selected.push(id) });
-  const state = createWorld();
-  state.agents[0].zone = 'home';
-  scene.render(viewFrame(state), { animate: false, reducedMotion: true });
-  h.flush();
-  assert.equal(h.canvas.width, 2000);
-  assert.equal(h.canvas.height, 1300);
-  // A01 occupies (95,236); click its torso at y=221, not its label.
-  for (const box of [
-    { left: 17, top: 29, width: 600, height: 1000 },
-    { left: 23, top: 37, width: 1200, height: 500 },
-  ]) {
-    h.setBox(box);
-    const scale = Math.min(box.width / 1000, box.height / 650);
-    const point = {
-      clientX: box.left + (box.width - 1000 * scale) / 2 + 95 * scale,
-      clientY: box.top + (box.height - 650 * scale) / 2 + 221 * scale,
-    };
-    h.dispatch('pointermove', point);
-    assert.equal(h.canvas.style.cursor, 'pointer');
-    h.dispatch('click', point);
-    assert.equal(selected.at(-1), 'A01');
-    const before = selected.length;
-    h.dispatch('click', { clientX: box.left + 3, clientY: box.top + 3 });
-    assert.equal(selected.length, before, 'letterbox area must not select a character');
+test('bubble limits preserve the selected speaker without reordering source events', () => {
+  const frame = viewFrame(step(inZone(), [1, 3, 5, 7].map(i => action(`A0${i}`, 'talk', {
+    target: `A0${i + 1}`, text: `第 ${i} 位角色開口`,
+  }))));
+  const before = JSON.stringify(frame.events);
+  const bubbles = visibleUtterances(frame, 'A07');
+  assert.equal(bubbles.length, 3);
+  assert.equal(bubbles[0].participants[0], 'A07');
+  assert.equal(new Set(bubbles.map(e => e.participants[0])).size, bubbles.length);
+  assert.deepEqual(visibleUtterances(frame, 'A07', 0), []);
+  assert.equal(JSON.stringify(frame.events), before);
+});
+
+test('borrowing and failed actions do not animate equipment use or a blocked move', () => {
+  const borrowed = step(inZone(), ['A01', 'A02', 'A03'].map(id => action(id, 'borrow', { resourceType: 'tools' })));
+  const frame = viewFrame(borrowed);
+  const failure = frame.events.find(e => e.type === 'capacity_failure');
+  assert.ok(failure, 'the fixture must exhaust the two available tools');
+  const failedDisplay = characterPresentation(frame, failure.participants[0]);
+  assert.equal(failedDisplay.failed, true);
+  assert.equal(failedDisplay.pose, 'idle');
+  assert.equal(failedDisplay.held, null);
+  const owner = borrowed.equipment.find(e => e.owner).owner;
+  const justBorrowed = characterPresentation(frame, owner);
+  assert.equal(justBorrowed.pose, 'idle');
+  assert.equal(justBorrowed.held.usableFrom, borrowed.tick + 1);
+
+  const blocked = viewFrame(step(borrowed, [action(owner, 'move', { destination: 'studio' })]));
+  const before = frame.agents.find(a => a.id === owner), after = blocked.agents.find(a => a.id === owner);
+  assert.equal(characterPresentation(blocked, owner).failed, true);
+  assert.equal(characterPresentation(blocked, owner).pose, 'idle');
+  assert.deepEqual(characterPosition(after, blocked), characterPosition(before, frame));
+});
+
+test('equipment use keeps its correct pose on the final usable tick after automatic return', () => {
+  for (const [zone, resourceType, pose] of [['workshop', 'tools', 'work'], ['studio', 'camera', 'camera']]) {
+    let state = step(inZone(zone), [action('A01', 'borrow', { resourceType })]);
+    state = step(state, [action('A01', 'work')]);
+    assert.equal(characterPresentation(viewFrame(state), 'A01').pose, pose);
+    state = step(state, [action('A01', 'work')]);
+    const finalUse = characterPresentation(viewFrame(state), 'A01');
+    assert.equal(finalUse.held, null, 'the engine already returned the equipment at the end of this tick');
+    assert.equal(finalUse.pose, pose, 'a successful final use must still be shown');
+    state = step(state, [action('A01', 'work')]);
+    assert.equal(characterPresentation(viewFrame(state), 'A01').failed, true);
+    assert.equal(characterPresentation(viewFrame(state), 'A01').pose, 'idle');
   }
-  assert.deepEqual(selected, ['A01', 'A01']);
+});
+
+test('a successful camera collaborator uses the camera pose; a failed join remains idle', () => {
+  let state = step(inZone('studio'), [action('A01', 'invite', { target: 'A02', resourceType: 'camera' })]);
+  const invitationId = state.invitations[0].id;
+  state = step(state, [
+    action('A01', 'borrow', { resourceType: 'camera' }),
+    action('A02', 'accept', { invitationId }),
+  ]);
+  const success = viewFrame(step(state, [action('A01', 'work', { invitationId }), action('A02', 'join', { invitationId })]));
+  assert.equal(characterPresentation(success, 'A01').pose, 'camera');
+  assert.equal(characterPresentation(success, 'A02').held, null);
+  assert.equal(characterPresentation(success, 'A02').pose, 'camera');
+  const failed = viewFrame(step(state, [action('A02', 'join', { invitationId })]));
+  assert.equal(characterPresentation(failed, 'A02').failed, true);
+  assert.equal(characterPresentation(failed, 'A02').pose, 'idle');
+});
+
+test('only consecutive frames from the same run animate, and camera/geometry limits stay safe', () => {
+  const initial = createWorld(), first = viewFrame(initial), second = viewFrame(step(initial));
+  assert.equal(isContinuousFrame(first, second), true);
+  assert.equal(isContinuousFrame(undefined, first), false);
+  assert.equal(isContinuousFrame(second, first), false);
+  assert.equal(isContinuousFrame(second, second), false);
+  assert.equal(isContinuousFrame(first, viewFrame(step(step(initial)))), false);
+  assert.equal(isContinuousFrame(first, viewFrame(step(createWorld({ seed: 42 })))), false);
+  assert.equal(isContinuousFrame(first, viewFrame(step(createWorld({ capacity: 8 })))), false);
+  assert.equal(clampZoom(-1), 1);
+  assert.equal(clampZoom(10), 2.5);
+  assert.equal(clampZoom(1.75), 1.75);
+  for (const value of [NaN, Infinity, undefined]) assert.equal(clampZoom(value), 1);
+  assertPoint(samplePath([], 0.5));
+  const stationary = [[10, 20], [10, 20]];
+  for (const progress of [-1, 0, 0.5, 1, 2, NaN]) assert.deepEqual(samplePath(stationary, progress), [10, 20]);
+  assert.equal(directionBetween([10, 20], [10, 20], 'left'), 'left');
+  assert.equal(directionBetween([0, 0], [10, 0]), 'right');
+  assert.equal(directionBetween([10, 0], [0, 0]), 'left');
+  assert.equal(directionBetween([0, 10], [0, 0]), 'up');
+  assert.equal(directionBetween([0, 0], [0, 10]), 'down');
 });
