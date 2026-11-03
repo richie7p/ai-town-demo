@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#193e34">
+  <title>AI 小鎮｜研究實驗室</title>
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles.css">
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="#"><span class="brand-mark">田</span><span>AI 小鎮<small>TOWN RESEARCH LAB</small></span></a>
+    <div class="sidebar-label">研究工作台 <span>01</span></div>
+    <a class="nav-link active" href="#town-section"><span>◈</span> 小鎮觀察室</a>
+    <a class="nav-link" href="#evidence"><span>≋</span> 事件與互動</a>
+    <a class="nav-link" href="#protocol"><span>▤</span> 實驗規則</a>
+    <div class="control-group">
+      <h2>場次設定 <span>DEMO</span></h2>
+      <label for="condition">設備可用量</label>
+      <select id="condition"><option value="2">B2 · 低可用量 / 每類 2 件</option><option value="3">B3 · 低可用量 / 每類 3 件</option><option value="8">A8 · 充裕 / 每類 8 件</option></select>
+      <label for="seed">設定種子</label>
+      <input id="seed" type="number" min="0" max="999999999" value="20261103" inputmode="numeric">
+      <button id="reset" class="sidebar-button">↻ 建立新場次</button>
+      <p class="control-help">相同種子保留人物與起點。變更設定後會開始新的場次。</p>
+    </div>
+    <div class="control-group secondary">
+      <h2>資料與比較</h2>
+      <button id="compare" class="sidebar-button">⇄ 執行一組 A／B 比較</button>
+      <div class="button-pair"><button id="export" class="sidebar-button">匯出紀錄 ↓</button><button id="import" class="sidebar-button">載入回放 ↑</button></div>
+      <input id="file" type="file" accept="application/json,.json" hidden>
+    </div>
+    <div class="sidebar-foot"><span class="live-dot"></span> 本機規則型角色<small>不呼叫 API · 不產生費用</small><span class="version">ENGINE DEMO / 0.1.0</span></div>
+  </aside>
+  <main>
+    <header class="page-header"><div><div class="eyebrow">RESEARCH PROTOTYPE <span>/</span> AI TOWN</div><h1>觀察一座小鎮，從一個時段開始。</h1><p>讓提議、記憶與世界事件，都有跡可循。</p></div><span class="prototype-badge"><i></i> 工程驗證版</span></header>
+    <div class="notice"><span>研究範圍</span>這裡是規則型角色的合成示範。用於檢查引擎，不是 LLM 實驗結果。</div>
+    <section class="metrics" aria-label="場次摘要">
+      <div class="metric"><span>模擬進度</span><strong id="progress-value">準備開始</strong><small id="progress-detail">0 / 120 時段</small><div class="mini-progress"><i id="progress-bar"></i></div></div>
+      <div class="metric"><span>設備使用中</span><strong id="equipment-value">0 <em>/ 4</em></strong><small>兩類合計 · 持有上限每人 1 件</small></div>
+      <div class="metric"><span>有效互動日</span><strong id="interaction-value">0</strong><small>同一角色對每日最多計 1 次</small></div>
+      <div class="metric"><span>主要指標 Y <b>D6–D10</b></span><strong id="y-value">—</strong><small id="y-detail">完成十日後顯示</small></div>
+    </section>
+    <section class="workspace" id="town-section">
+      <div class="town-panel panel">
+        <div class="panel-heading"><div><span class="section-number">01</span><h2>小鎮即時觀察</h2></div><span id="clock-badge" class="clock-badge">初始狀態</span></div>
+        <div class="town-map" id="town-map"><svg id="town-art" viewBox="0 0 800 540" preserveAspectRatio="none" aria-hidden="true"></svg><div id="avatars"></div><div class="map-legend"><span><i class="legend-dot"></i> 點選角色查看決策</span><span id="map-condition">B2 / 每類 2 件</span></div></div>
+        <div class="transport"><button id="play" class="primary">▶ 開始播放</button><button id="step">下一時段 →</button><button id="finish" class="text-button">跑完十日 ↗</button><label for="speed" class="speed-label">速度 <select id="speed"><option value="1200">1×</option><option value="600">2×</option><option value="250">4×</option></select></label></div>
+        <div class="timeline"><span id="timeline-label">回放 0 / 0</span><input id="seek" type="range" min="0" max="0" value="0" aria-label="回放時段"><span id="view-mode">即時</span></div>
+      </div>
+      <aside class="inspector panel"><div class="panel-heading"><div><span class="section-number">02</span><h2>角色與記憶</h2></div><span class="small-label">點選查看</span></div><div id="agent-detail"></div></aside>
+    </section>
+    <section id="pair-panel" class="pair-panel panel" hidden></section>
+    <section class="evidence-grid" id="evidence">
+      <div class="panel event-panel"><div class="panel-heading"><div><span class="section-number">03</span><h2>可回查的世界事件</h2></div><select id="event-filter" aria-label="事件類別"><option value="all">所有事件</option><option value="social">交談與合作</option><option value="equipment">設備借還</option><option value="failed">失敗與無效</option></select></div><div class="event-table-head"><span>時間 / ID</span><span>事件</span><span>引擎紀錄</span></div><div id="events" class="event-list"></div><div class="panel-foot">最多顯示最近 60 筆 · 匯出檔保留完整提議、實際觀察與事件</div></div>
+      <div class="panel network-panel"><div class="panel-heading"><div><span class="section-number">04</span><h2>互動軌跡</h2></div></div><svg id="network" viewBox="0 0 300 250" role="img" aria-label="全場累計有效互動網絡"></svg><p class="network-note">線條表示已完成互動，粗細依互動日數。<br>這是全場累計接觸，不等同主指標的連結。</p><div id="network-stats" class="network-stats"></div></div>
+    </section>
+    <section class="protocol panel" id="protocol"><div class="panel-heading"><div><span class="section-number">05</span><h2>先驗證規則，再啟動研究</h2></div><span class="small-label">研究計畫 v5 · 簡報 v7</span></div><div class="rule-grid"><article><span>01 / 同步</span><h3>固定觀察 → 收齊提議 → 統一結算</h3><p>每人每時段一個行動。新事件下一時段才可見；網路速度不決定設備優先權。</p></article><article><span>02 / 設備與合作</span><h3>借用後兩時段可用</h3><p>s 借到，s+1、s+2 可用，s+2 結束歸還。邀請 t+2 合作，須完成接受、work 和 join。</p></article><article><span>03 / 指標</span><h3>末五日至少三日，雙方有效發起</h3><p>有效回覆或合作按完成日計。Y = 合格角色對 / 28；互動量不代表友誼或信任。</p></article><article><span>04 / 尚待完成</span><h3>模型接入、校準與凍結先導</h3><p>此版不含 LLM、模型反思、API 重試或正式配對估計。記憶容量使用近似 tokens，尚未凍結。</p></article></div></section>
+    <footer>AI 小鎮 <span>可回播・可重算・可檢查</span><span>工程示範資料，不納入正式研究樣本。</span></footer>
+  </main>
+  <div id="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>

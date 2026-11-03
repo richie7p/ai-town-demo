@@ -1,0 +1,20 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+
+test('local server serves the demo and excludes repository/private files', { timeout: 15000 }, async t => {
+  const child = spawn(process.execPath, ['server.mjs'], { env: { ...process.env, PORT: '0' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  t.after(() => child.kill());
+  const [line] = await once(child.stdout, 'data');
+  const base = line.toString().match(/http:\/\/127\.0\.0\.1:\d+/)[0];
+  const response = await fetch(base);
+  assert.equal(response.status, 200);
+  assert.match(await response.text(), /AI 小鎮/);
+  assert.match(response.headers.get('content-security-policy'), /script-src 'self'/);
+  assert.equal((await fetch(base + '/src/engine.js')).status, 200);
+  for (const path of ['/.git/config', '/.env', '/package.json', '/output/demo-replay.json', '/src/../../.env']) {
+    assert.equal((await fetch(base + path)).status, 404);
+  }
+  assert.equal((await fetch(base, { method: 'POST' })).status, 405);
+});
