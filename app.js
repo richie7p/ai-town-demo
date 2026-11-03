@@ -2,6 +2,8 @@ import { createWorld, step } from './src/engine.js';
 import { propose } from './src/policy.js';
 import { exportRun } from './src/replay.js';
 import { viewFrame } from './src/presentation.js';
+import { residentPortrait } from './src/resident-art.js';
+import { WORLD_SIZE } from './src/town-view-model.js';
 import { createTownScene } from './src/town-scene.js';
 import { ZONES, dayOf, slotOf, ACTION_NAMES } from './src/config.js';
 
@@ -22,11 +24,18 @@ const actor = id => frame().agents.find(a => a.id === id);
 let cameraFollowing = false;
 const scene = createTownScene($('town-stage'), {
   onSelect: id => selectAgent(id),
-  onCameraChange: ({zoom,following}) => {
+  onCameraChange: ({zoom,following,worldView}) => {
     cameraFollowing = following;
     $('zoom-level').textContent = `${Math.round(zoom*100)}%`;
     $('zoom-out').disabled = zoom <= 1;
-    $('zoom-in').disabled = zoom >= 2.5;
+    $('zoom-in').disabled = zoom >= 3.5;
+    if(worldView){
+      const rect=$('minimap-viewport');
+      rect.style.left=`${100*worldView.x/WORLD_SIZE.width}%`;
+      rect.style.top=`${100*worldView.y/WORLD_SIZE.height}%`;
+      rect.style.width=`${100*worldView.width/WORLD_SIZE.width}%`;
+      rect.style.height=`${100*worldView.height/WORLD_SIZE.height}%`;
+    }
     $('camera-follow').setAttribute('aria-pressed', String(following));
     $('camera-follow').textContent = following ? '◎ 正在跟隨' : '◎ 跟隨居民';
   },
@@ -34,21 +43,21 @@ const scene = createTownScene($('town-stage'), {
     $('scene-status').hidden = true;
     $('town-stage').dataset.renderer = renderer;
     $('town-stage').dataset.phaserVersion = version;
-    for(const id of ['zoom-in','camera-reset','camera-follow']) $(id).disabled = false;
+    for(const id of ['zoom-in','camera-reset','camera-follow','town-minimap']) $(id).disabled = false;
+    document.querySelectorAll('[data-zone]').forEach(button=>button.disabled=false);
   },
   onError: error => {
     console.error('Town renderer:', error);
     $('scene-status').hidden = false;
     $('scene-status').classList.add('failed');
     $('scene-status').textContent = '小鎮畫面未能載入，請重新整理頁面。居民資料與生活紀錄仍可從下方查看。';
-    for(const id of ['zoom-in','zoom-out','camera-reset','camera-follow']) $(id).disabled = true;
+    for(const id of ['zoom-in','zoom-out','camera-reset','camera-follow','town-minimap']) $(id).disabled = true;
+    document.querySelectorAll('[data-zone]').forEach(button=>button.disabled=true);
   },
 });
 
 function portrait(agent) {
-  const i = Number(agent.id.slice(1)) - 1, hair = ['#49372e','#70533b','#323c39','#755044','#403d4a','#a1784d','#51412d','#694831'][i];
-  const color = /^#[a-f0-9]{6}$/i.test(agent.color) ? agent.color : '#567c56';
-  return `<svg viewBox="0 0 32 38" aria-hidden="true" shape-rendering="crispEdges"><ellipse cx="16" cy="36" rx="11" ry="2" fill="#65734618"/><path d="M10 29h5v7H9v-4h1m7-3h5v7h-6v-4h1" fill="#4b5148"/><path d="M9 19h14v13H9zM6 21h3v8H6m17-8h3v8h-3" fill="${color}"/><path d="M12 18h8v5h-8M6 27h3v4H6m17-4h3v4h-3" fill="#edc7a0"/><path d="M9 5h14v4h2v9h-3v3H10v-3H7V9h2" fill="#edc7a0"/><path d="M9 4h14v3h3v9h-3V9h-4v2h-9v5H7V7h2" fill="${hair}"/><path d="M11 14h2v2h-2m8-2h2v2h-2" fill="#3f4238"/><path d="M14 18h4v1h-4" fill="#bb866b"/>${i % 3 === 0 ? '<path d="M8 5h16v3H8" fill="#d5bb73"/>' : ''}</svg>`;
+  return `<img src="${residentPortrait(agent)}" alt="" draggable="false">`;
 }
 function toast(message) { $('toast').textContent = message; $('toast').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => {$('toast').hidden = true;}, 5800); }
 function controls() {
@@ -73,7 +82,8 @@ function start() {
   if (busy) return;
   if (timer) {stop(); return;}
   if (viewed === 120) {viewed = 0; render({animate:false});}
-  timer = setInterval(advance, Number($('speed').value)); controls(); advance();
+  timer = setInterval(advance, Number($('speed').value)); controls();
+  if(viewed===0)advance();else render({animate:false});
 }
 function background(type, payload, apply) {
   stop(); busy = true; controls();
@@ -210,6 +220,12 @@ $('zoom-in').addEventListener('click',()=>scene.zoomIn());
 $('zoom-out').addEventListener('click',()=>scene.zoomOut());
 $('camera-reset').addEventListener('click',()=>scene.resetCamera());
 $('camera-follow').addEventListener('click',()=>scene.setFollow(!cameraFollowing));
+for(const button of document.querySelectorAll('[data-zone]')) button.addEventListener('click',()=>scene.focusZone(button.dataset.zone));
+$('town-minimap').addEventListener('click',event=>{
+  if(!event.detail){scene.resetCamera();return;}
+  const rect=$('town-minimap').getBoundingClientRect();
+  scene.panTo((event.clientX-rect.left)/rect.width*WORLD_SIZE.width,(event.clientY-rect.top)/rect.height*WORLD_SIZE.height);
+});
 $('finish').addEventListener('click',()=>background('finish',{state},result=>{state=result.state;frames.push(...result.frames);viewed=state.tick;render();toast('十日已完成。拖動時間軸，或按「從頭回放」觀看保存的生活。');}));
 $('compare').addEventListener('click',()=>background('compare',{seed:state.config.seed,capacity:state.config.capacity===3?3:2},({pair})=>{
   $('pair-panel').hidden=false;

@@ -1,8 +1,9 @@
 import { ACTION_NAMES } from './config.js';
-import { registerTownAssets } from './town-assets.js';
-import { WORLD_SIZE, clampZoom, isContinuousFrame, characterPosition, presentationPath, samplePath, directionBetween, characterPresentation, visibleUtterances } from './town-view-model.js';
+import * as townAssets from './town-assets.js';
+import { WORLD_SIZE, ZONE_CENTERS, clampZoom, isContinuousFrame, characterPosition, presentationPath, samplePath, directionBetween, characterPresentation, visibleUtterances } from './town-view-model.js';
 
 const { width: W, height: H } = WORLD_SIZE;
+const VIEW_WIDTH=1200, VIEW_HEIGHT=800, FIT_ZOOM=Math.min(VIEW_WIDTH/W,VIEW_HEIGHT/H);
 const FONT = '"Microsoft JhengHei", "Noto Sans TC", sans-serif';
 const idleFrames = { down:0, left:1, right:2, up:3 };
 const characterClips = {down:[4,7],left:[8,11],right:[12,15],up:[16,19],work:[20,23],rest:[24,25],talk:[26,27],camera:[28,29]};
@@ -16,7 +17,13 @@ export function createTownScene(host, { onSelect=()=>{}, onCameraChange=()=>{}, 
   const Phaser = globalThis.Phaser;
   let game, scene, pending=null, destroyed=false, observer;
   let zoom=1, following=false, dpr=clip(globalThis.devicePixelRatio||1,1,2);
-  const notifyCamera = () => onCameraChange({zoom,following});
+  let lastCameraSignature='';
+  const notifyCamera = (force=false) => {
+    const view=scene?.cameras.main.worldView;
+    const worldView=view?.width>0 ? {x:Math.max(0,view.x),y:Math.max(0,view.y),width:Math.min(W,view.width),height:Math.min(H,view.height)} : {x:0,y:0,width:W,height:H};
+    const signature=[zoom,following,...Object.values(worldView).map(n=>Math.round(n*10))].join('|');
+    if(force||signature!==lastCameraSignature){lastCameraSignature=signature;onCameraChange({zoom,following,worldView});}
+  };
   const reportError = error => { if(!destroyed)onError(error instanceof Error ? error : new Error(String(error))); };
   const api = {
     render(frame, options={}) {
@@ -27,7 +34,16 @@ export function createTownScene(host, { onSelect=()=>{}, onCameraChange=()=>{}, 
     zoomIn() { zoom=clampZoom(zoom+.25);scene?.applyCamera();notifyCamera(); },
     zoomOut() { zoom=clampZoom(zoom-.25);scene?.applyCamera();notifyCamera(); },
     resetCamera() { zoom=1;following=false;scene?.applyCamera(true);notifyCamera(); },
-    setFollow(value) { following=!!value;if(following)zoom=Math.max(1.5,zoom);scene?.applyCamera();notifyCamera(); },
+    setFollow(value) { following=!!value;if(following)zoom=Math.max(2.2,zoom);scene?.applyCamera();notifyCamera(); },
+    focusZone(zone) {
+      const point=ZONE_CENTERS[zone];if(!point)return;
+      following=false;zoom=Math.max(2.2,zoom);scene?.applyCamera();
+      scene?.cameras.main.stopFollow().centerOn(point[0],point[1]);notifyCamera(true);
+    },
+    panTo(x,y) {
+      if(!Number.isFinite(x)||!Number.isFinite(y))return;
+      following=false;scene?.applyCamera();scene?.cameras.main.stopFollow().centerOn(clip(x,0,W),clip(y,0,H));notifyCamera(true);
+    },
     destroy() { if(destroyed)return;destroyed=true;observer?.disconnect();globalThis.removeEventListener('resize',resize);game?.destroy(true);scene=null;pending=null; },
   };
   function resize() {
@@ -35,17 +51,25 @@ export function createTownScene(host, { onSelect=()=>{}, onCameraChange=()=>{}, 
     const nextDpr=clip(globalThis.devicePixelRatio||1,1,2);
     if(nextDpr!==dpr){
       const camera=scene?.cameras.main,center=camera?.getWorldPoint(camera.width/2,camera.height/2);
-      dpr=nextDpr;game.scale.resize(W*dpr,H*dpr);scene?.applyCamera();
+      dpr=nextDpr;game.scale.resize(VIEW_WIDTH*dpr,VIEW_HEIGHT*dpr);scene?.applyCamera();
       if(center)camera.centerOn(center.x,center.y);
     }
-    game.scale.refresh();
+    game.scale.refresh();notifyCamera(true);
   }
   if(!Phaser?.Game || !host){reportError(new Error('Phaser 場景無法啟動，請重新整理頁面。'));return api;}
 
   class TownScene extends Phaser.Scene {
     constructor(){super('v5-town');this.ready=false;this.built=false;this.characters=new Map();this.bubbles=[];this.ambientTweens=[];this.ambientLights=[];this.frame=null;this.options={};this.drag=null;}
+    preload(){
+      this.load.once('loaderror',file=>{
+        this.assetError=new Error(`小鎮美術載入失敗：${file?.key||'場景素材'}`);
+        reportError(this.assetError);
+      });
+      townAssets.preloadTownAssets?.(this);
+    }
     create(){
       try {
+        if(this.assetError)return;
         scene=this;this.ready=true;
         this.cameras.main.setBounds(0,0,W,H).setRoundPixels(true);
         this.applyCamera(true);
@@ -56,7 +80,8 @@ export function createTownScene(host, { onSelect=()=>{}, onCameraChange=()=>{}, 
           if(Math.hypot(dx,dy)>6*dpr)this.drag.moved=true;
           if(this.drag.moved){
             if(following){following=false;this.cameras.main.stopFollow();notifyCamera();}
-            this.cameras.main.setScroll(this.drag.scrollX-dx/(zoom*dpr),this.drag.scrollY-dy/(zoom*dpr));
+            this.cameras.main.setScroll(this.drag.scrollX-dx/(zoom*dpr*FIT_ZOOM),this.drag.scrollY-dy/(zoom*dpr*FIT_ZOOM));
+            notifyCamera();
             if(game?.canvas)game.canvas.style.cursor='grabbing';
           }
         });
@@ -74,42 +99,43 @@ export function createTownScene(host, { onSelect=()=>{}, onCameraChange=()=>{}, 
       const drag=this.drag;this.drag=null;if(this.game.canvas)this.game.canvas.style.cursor='grab';
       if(!drag||drag.moved)return;
       const point=this.cameras.main.getWorldPoint(pointer.x,pointer.y);
-      const hit=[...this.characters.values()].filter(c=>Math.abs(c.container.x-point.x)<27&&point.y<c.container.y+10&&point.y>c.container.y-61).sort((a,b)=>b.container.y-a.container.y)[0];
+      const hit=[...this.characters.values()].filter(c=>Math.abs(c.container.x-point.x)<42&&point.y<c.container.y+15&&point.y>c.container.y-108).sort((a,b)=>b.container.y-a.container.y)[0];
       if(hit)onSelect(hit.id);
     }
     applyCamera(reset=false){
       if(!this.ready)return;
       const camera=this.cameras.main;
       const center=camera.getWorldPoint(camera.width/2,camera.height/2);
-      camera.setZoom(zoom*dpr);
+      camera.setZoom(FIT_ZOOM*zoom*dpr);
       if(reset)camera.stopFollow().centerOn(W/2,H/2);
       else camera.centerOn(Number.isFinite(center.x)?center.x:W/2,Number.isFinite(center.y)?center.y:H/2);
       const actor=this.characters.get(this.options.selected);
-      if(following&&actor)camera.startFollow(actor.container,true,.12,.12);
+      if(following&&actor)camera.startFollow(actor.container,true,this.options.reducedMotion?1:.12,this.options.reducedMotion?1:.12);
       else camera.stopFollow();
     }
     text(x,y,content,size=13,color='#3e5144',extra={}){
       return this.add.text(x,y,content,{fontFamily:FONT,fontSize:`${size}px`,color,resolution:2,...extra});
     }
     build(frame){
-      const assets=registerTownAssets(this,frame.agents);this.assets=assets;
-      this.add.image(0,0,assets.backgroundKey).setOrigin(0,0).setDepth(0);
+      const assets=townAssets.registerTownAssets(this,frame.agents);this.assets=assets;
+      if(!this.textures.exists(assets.backgroundKey))throw new Error('小鎮背景尚未載入完成。');
+      this.add.image(0,0,assets.backgroundKey).setOrigin(0,0).setDisplaySize(W,H).setDepth(0);
       for(const layer of assets.foreground)this.add.image(layer.x,layer.y,layer.key).setOrigin(0,0).setDepth(layer.depth);
       const fountain=assets.ambient.fountain;
       for(let i=0;i<3;i++){
-        const ripple=this.add.ellipse(fountain.x,fountain.y,22+i*19,8+i*6).setStrokeStyle(1,0xf3fff9,.55).setDepth(fountain.y-2);
+        const ripple=this.add.ellipse(fountain.x,fountain.y,(fountain.radius||48)+i*23,16+i*8).setStrokeStyle(1,0xf3fff9,.55).setDepth(fountain.y-2);
         this.ambientTweens.push(this.tweens.add({targets:ripple,scaleX:1.16,scaleY:1.14,alpha:.18,duration:1300+i*270,yoyo:true,repeat:-1,paused:true,delay:i*200}));
       }
       for(const lamp of assets.ambient.lamps){
-        this.ambientLights.push(this.add.ellipse(lamp.x,lamp.y,56,56,0xffdf8e,1).setAlpha(0).setDepth(1005));
-        this.ambientLights.push(this.add.ellipse(lamp.x,lamp.y,23,23,0xffeab3,1).setAlpha(0).setDepth(1006));
+        this.ambientLights.push(this.add.ellipse(lamp.x,lamp.y,100,100,0xffdf8e,1).setAlpha(0).setDepth(3005));
+        this.ambientLights.push(this.add.ellipse(lamp.x,lamp.y,34,34,0xffeab3,1).setAlpha(0).setDepth(3006));
       }
-      this.phaseOverlay=this.add.rectangle(0,0,W,H,0x485677,1).setAlpha(0).setOrigin(0,0).setDepth(1000);
-      this.phaseLabel=this.text(982,18,'',11,'#526554',{backgroundColor:'#fff9ec',padding:{x:8,y:5}}).setOrigin(1,0).setDepth(1100);
-      this.equipmentLabels={
-        workshop:this.text(550,326,'',10,'#566450',{backgroundColor:'#fff9ed',padding:{x:7,y:4}}).setDepth(1100),
-        studio:this.text(533,611,'',10,'#566450',{backgroundColor:'#fff9ed',padding:{x:7,y:4}}).setDepth(1100),
-      };
+      this.phaseOverlay=this.add.rectangle(0,0,W,H,0x485677,1).setAlpha(0).setOrigin(0,0).setDepth(3000);
+      this.equipmentLabels={};
+      for(const [zone,fallback] of Object.entries({workshop:{x:1730,y:710},studio:{x:1710,y:1480}})){
+        const position=assets.equipmentLabels?.[zone]||fallback;
+        this.equipmentLabels[zone]=this.text(position.x,position.y,'',17,'#3d5541',{backgroundColor:'#fff8e9',padding:{x:11,y:7}}).setDepth(3300);
+      }
       for(const [index,agent] of frame.agents.entries())this.addCharacter(agent,assets.characterKeys[agent.id],index);
       this.built=true;
     }
@@ -122,12 +148,12 @@ export function createTownScene(host, { onSelect=()=>{}, onCameraChange=()=>{}, 
     }
     addCharacter(agent,texture,index){
       this.registerCharacterAnimations(agent.id,texture);
-      const shadow=this.add.ellipse(0,-1,31,10,0x38523e,.2);
-      const ring=this.add.ellipse(0,-1,40,15).setStrokeStyle(2,0xf8f5cd).setVisible(false);
+      const shadow=this.add.ellipse(0,-1,48,16,0x243b34,.25);
+      const ring=this.add.ellipse(0,-1,66,23).setStrokeStyle(3,0xffedb0).setVisible(false);
       const sprite=this.add.sprite(0,0,texture,0).setOrigin(.5,1);
-      const name=this.text(0,8,agent.name,12,'#344c3c',{fontStyle:'bold',backgroundColor:'#fffaf0',padding:{x:5,y:2}}).setOrigin(.5,0);
-      const action=this.text(0,28,'',9,'#6e7768',{backgroundColor:'#fffaed',padding:{x:3,y:1}}).setOrigin(.5,0);
-      const equipment=this.text(19,-48,'',10,'#fffaf0',{backgroundColor:'#536b5a',padding:{x:3,y:2}}).setOrigin(0,1).setVisible(false);
+      const name=this.text(0,10,agent.name,20,'#344c3c',{fontStyle:'bold',backgroundColor:'#fffaf0',padding:{x:8,y:3}}).setOrigin(.5,0);
+      const action=this.text(0,38,'',14,'#6e7768',{backgroundColor:'#fffaed',padding:{x:3,y:1}}).setOrigin(.5,0);
+      const equipment=this.text(32,-85,'',14,'#fffaf0',{backgroundColor:'#536b5a',padding:{x:5,y:3}}).setOrigin(0,1).setVisible(false);
       const container=this.add.container(0,0,[shadow,ring,sprite,name,action,equipment]);
       this.characters.set(agent.id,{id:agent.id,container,sprite,ring,name,action,equipment,appearance:appearanceIdentity(agent,index),direction:'down',zone:agent.zone,path:null,motion:null,moving:false,presentation:null,animationKey:null});
     }
@@ -137,7 +163,7 @@ export function createTownScene(host, { onSelect=()=>{}, onCameraChange=()=>{}, 
       const changed=frame.agents.some((agent,index)=>this.characters.get(agent.id)?.appearance!==appearanceIdentity(agent,index));
       for(const agent of frame.agents){const actor=this.characters.get(agent.id);if(actor&&actor.name.text!==agent.name)actor.name.setText(agent.name);}
       if(!changed)return false;
-      const assets=registerTownAssets(this,frame.agents);this.assets=assets;
+      const assets=townAssets.registerTownAssets(this,frame.agents);this.assets=assets;
       for(const [index,agent] of frame.agents.entries()){
         const actor=this.characters.get(agent.id),identity=appearanceIdentity(agent,index);
         if(!actor){this.addCharacter(agent,assets.characterKeys[agent.id],index);continue;}
@@ -185,6 +211,9 @@ export function createTownScene(host, { onSelect=()=>{}, onCameraChange=()=>{}, 
           else if(!actor.moving)this.settle(actor);
           continue;
         }
+        // Fast manual stepping may interrupt a walk. Finish the old display
+        // transition before routing from its settled zone into the next one.
+        if(continuous&&actor.moving&&actor.destination)this.place(actor,actor.destination);
         actor.motion?.stop();actor.motion=null;
         actor.presentation=characterPresentation(frame,agent.id);
         const p=actor.presentation;
@@ -222,10 +251,8 @@ export function createTownScene(host, { onSelect=()=>{}, onCameraChange=()=>{}, 
         label.setText(`${zone==='workshop'?'工具':'相機'}  ${items.length-held.length}/${items.length} 可借${held.length?` · ${held.length} 持有`:''}${newly?`（${newly} 下步可用）`:''}`);
       }
       const slot=(Math.max(1,frame.tick)-1)%12;
-      const phase=slot<3?'晨光':slot<6?'日間':slot<9?'午後':'傍晚';
       const night=slot>=9 ? .12:slot>=6?.035:0;
       this.phaseOverlay.setAlpha(night);
-      this.phaseLabel.setText(`${phase} · 氛圍示意`);
       this.ambientLights.forEach((light,i)=>light.setAlpha(slot>=9?(i%2?.52:.16):0));
     }
     makeBubbles(frame,selected){
@@ -234,12 +261,12 @@ export function createTownScene(host, { onSelect=()=>{}, onCameraChange=()=>{}, 
         const actor=this.characters.get(event.participants[0]);if(!actor)continue;
         const speaker=frame.agents.find(a=>a.id===actor.id)?.name??'';
         const content=String(event.text).slice(0,68);
-        const text=this.text(10,23,wrap(content)+(event.text.length>68?'…':''),11,'#405044',{lineSpacing:3});
-        const width=Math.min(225,Math.max(128,text.width+20)),height=text.height+34;
-        const graphics=this.add.graphics();graphics.fillStyle(0x3b513d,.10).fillRoundedRect(3,4,width,height,8);graphics.fillStyle(0xfffcf3,.98).fillRoundedRect(0,0,width,height,8);graphics.lineStyle(1,event.participants[0]===selected?0x689879:0xb9c7a8,1).strokeRoundedRect(0,0,width,height,8);
-        graphics.fillStyle(0xfffcf3,1).fillTriangle(width/2-5,height-1,width/2+5,height-1,width/2,height+7);
-        const title=this.text(10,7,`${speaker} · ${ACTION_NAMES[event.type]||'交談'}`,10,'#8c805e',{fontStyle:'bold'});
-        const container=this.add.container(0,0,[graphics,title,text]).setDepth(1300+this.bubbles.length);
+        const text=this.text(16,38,wrap(content)+(event.text.length>68?'…':''),18,'#405044',{lineSpacing:5});
+        const width=Math.min(360,Math.max(220,text.width+32)),height=text.height+55;
+        const graphics=this.add.graphics();graphics.fillStyle(0x3b513d,.10).fillRoundedRect(4,6,width,height,12);graphics.fillStyle(0xfffcf3,.98).fillRoundedRect(0,0,width,height,12);graphics.lineStyle(1,event.participants[0]===selected?0x689879:0xb9c7a8,1).strokeRoundedRect(0,0,width,height,12);
+        graphics.fillStyle(0xfffcf3,1).fillTriangle(width/2-9,height-1,width/2+9,height-1,width/2,height+12);
+        const title=this.text(16,11,`${speaker} · ${ACTION_NAMES[event.type]||'交談'}`,15,'#8c805e',{fontStyle:'bold'});
+        const container=this.add.container(0,0,[graphics,title,text]).setDepth(6000+this.bubbles.length);
         this.bubbles.push({actor,container,width,height,event});
       }
       this.layoutBubbles();
@@ -251,9 +278,9 @@ export function createTownScene(host, { onSelect=()=>{}, onCameraChange=()=>{}, 
         // Current-step speech stays readable until the next world frame. It appears
         // after a walking transition, and is never borrowed from a future trace.
         container.setVisible(!actor.moving);
-        const idealX=actor.container.x-width/2,idealY=actor.container.y-height-67;
+        const idealX=actor.container.x-width/2,idealY=actor.container.y-height-116;
         const candidates=[];
-        for(const dy of [0,-height-10,height+112])for(const dx of [0,-width-10,width+10]){
+        for(const dy of [0,-height-15,height+176])for(const dx of [0,-width-10,width+10]){
           const x=clip(idealX+dx,10,W-width-10),y=clip(idealY+dy,8,H-height-10);
           const overlaps=placed.reduce((sum,p)=>sum+(x<p.x+p.width+8&&x+width+8>p.x&&y<p.y+p.height+8&&y+height+8>p.y?1:0),0);
           candidates.push({x,y,score:overlaps*10000000+(x-idealX)**2+(y-idealY)**2});
@@ -262,11 +289,11 @@ export function createTownScene(host, { onSelect=()=>{}, onCameraChange=()=>{}, 
         container.setPosition(x,y);placed.push({x,y,width,height});
       }
     }
-    update(){if(this.bubbles.some(b=>b.actor.moving))this.layoutBubbles();}
+    update(){if(this.bubbles.some(b=>b.actor.moving))this.layoutBubbles();notifyCamera();}
   }
   try {
-    game=new Phaser.Game({type:Phaser.AUTO,parent:host,width:W*dpr,height:H*dpr,backgroundColor:'#d4dfb5',banner:false,
-      scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH,width:W*dpr,height:H*dpr,expandParent:false},
+    game=new Phaser.Game({type:Phaser.AUTO,parent:host,width:VIEW_WIDTH*dpr,height:VIEW_HEIGHT*dpr,backgroundColor:'#d4dfb5',banner:false,
+      scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH,width:VIEW_WIDTH*dpr,height:VIEW_HEIGHT*dpr,expandParent:false},
       render:{pixelArt:true,roundPixels:true},audio:{noAudio:true},fps:{target:60},scene:TownScene,
     });
     if(globalThis.ResizeObserver){observer=new ResizeObserver(resize);observer.observe(host);}

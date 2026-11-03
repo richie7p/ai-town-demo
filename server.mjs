@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 const root = dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT || 4173);
 const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.txt': 'text/plain; charset=utf-8' };
-const publicFiles = new Set(['/index.html', '/styles.css', '/app.js', '/favicon.svg']);
+const publicFiles = new Set(['/index.html', '/styles.css', '/app.js', '/favicon.svg', '/assets/town-grand-v1.png']);
 const vendorFiles = new Map([
   ['/vendor/phaser.js', 'node_modules/phaser/dist/phaser.min.js'],
   ['/vendor/phaser.LICENSE.txt', 'node_modules/phaser/LICENSE.md'],

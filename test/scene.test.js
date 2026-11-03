@@ -4,7 +4,7 @@ import { createWorld, step } from '../src/engine.js';
 import { propose } from '../src/policy.js';
 import { viewFrame } from '../src/presentation.js';
 import {
-  WORLD_SIZE, characterPosition, presentationPath, samplePath,
+  WORLD_SIZE, ZONE_CENTERS, characterPosition, presentationPath, samplePath,
   directionBetween, characterPresentation, visibleUtterances,
   isContinuousFrame, clampZoom,
 } from '../src/town-view-model.js';
@@ -78,6 +78,27 @@ test('only delivered utterances become bubbles or talking poses, including when 
   assert.deepEqual(visibleUtterances(current, 'A02').map(e => e.text), ['現在才回覆']);
   assert.deepEqual(visibleUtterances(viewFrame(step(replied)), 'A01'), []);
   assert.deepEqual(visibleUtterances(past, 'A01').map(e => e.text), [actual]);
+});
+
+test('residents on the garden ring reach other districts without crossing the fountain water', () => {
+  const plaza = viewFrame(inZone('plaza'));
+  for (const zone of ['home', 'workshop', 'studio']) {
+    const destinationFrame = viewFrame(inZone(zone));
+    for (const agent of plaza.agents) {
+      const from = characterPosition(agent, plaza);
+      const destination = destinationFrame.agents.find(a => a.id === agent.id);
+      const to = characterPosition(destination, destinationFrame);
+      for (const path of [presentationPath(from, to, 'plaza', zone), presentationPath(to, from, zone, 'plaza')]) {
+        const before = JSON.stringify(path);
+        for (let i = 0; i <= 100; i++) {
+          const [x, y] = samplePath(path, i / 100);
+          assert.ok(!(x > 625 && x < 815 && y > 1028 && y < 1100), 'display path entered the fountain');
+          assertPoint([x, y]);
+        }
+        assert.equal(JSON.stringify(path), before);
+      }
+    }
+  }
 });
 
 test('bubble limits preserve the selected speaker without reordering source events', () => {
@@ -155,9 +176,10 @@ test('only consecutive frames from the same run animate, and camera/geometry lim
   assert.equal(isContinuousFrame(first, viewFrame(step(createWorld({ seed: 42 })))), false);
   assert.equal(isContinuousFrame(first, viewFrame(step(createWorld({ capacity: 8 })))), false);
   assert.equal(clampZoom(-1), 1);
-  assert.equal(clampZoom(10), 2.5);
+  assert.equal(clampZoom(10), 3.5);
   assert.equal(clampZoom(1.75), 1.75);
   for (const value of [NaN, Infinity, undefined]) assert.equal(clampZoom(value), 1);
+  for (const center of Object.values(ZONE_CENTERS)) assertPoint(center);
   assertPoint(samplePath([], 0.5));
   const stationary = [[10, 20], [10, 20]];
   for (const progress of [-1, 0, 0.5, 1, 2, NaN]) assert.deepEqual(samplePath(stationary, progress), [10, 20]);
