@@ -91,6 +91,7 @@ function controls() {
 function stop() { clearInterval(timer); timer = null; controls(); scene.render(frame(), {selected,playing:false,duration:Number($('speed').value)*0.45,reducedMotion:reduced.matches,animate:false}); }
 function selectAgent(id) { if (!actor(id)) return; selected = id; render({animate:false}); }
 function advance() {
+  if(timer&&scene.isTransitioning())return;
   try {
     if (viewed < state.tick) viewed++;
     else if (state.tick < 120) {state = step(state, propose(state)); frames.push(viewFrame(state)); viewed = state.tick;}
@@ -210,7 +211,7 @@ function mode(research) {
 $('play').addEventListener('click',start);
 $('step').addEventListener('click',()=>{stop();advance();});
 $('latest').addEventListener('click',()=>{stop();viewed=state.tick;render();});
-$('speed').addEventListener('change',()=>{if(timer){clearInterval(timer);timer=setInterval(advance,Number($('speed').value));}});
+$('speed').addEventListener('change',()=>{if(timer){clearInterval(timer);timer=setInterval(advance,Number($('speed').value));}render({animate:false});});
 $('seek').addEventListener('input',()=>{stop();viewed=Number($('seek').value);render();});
 $('event-filter').addEventListener('change',renderEvents);
 $('mode-life').addEventListener('click',()=>mode(false));$('mode-research').addEventListener('click',()=>mode(true));

@@ -1,5 +1,7 @@
 import { ACTION_NAMES } from './config.js';
 import * as townAssets from './town-assets.js';
+import { RESIDENT_CLIPS } from './resident-motion.js';
+import { RESIDENT_SCALE, SEATED_OFFSET, motionRate, walkDuration, seatedPose } from './character-motion.js';
 import { WORLD_SIZE, ZONE_CENTERS, clampZoom, isContinuousFrame, characterPosition, presentationPath, samplePath, directionBetween, characterPresentation, visibleUtterances } from './town-view-model.js';
 import { TILE_SIZE, MAP_OBJECTS, isWalkable, findWalkPath, activityAnchor, nearestWalkable, locationAt, createMinimapDataUrl } from './town-map.js';
 
@@ -7,7 +9,7 @@ const { width: W, height: H } = WORLD_SIZE;
 const VIEW_WIDTH=1200;
 const FONT='"Microsoft JhengHei", "Noto Sans TC", sans-serif';
 const idleFrames={down:0,left:1,right:2,up:3};
-const characterClips={down:[4,7],left:[8,11],right:[12,15],up:[16,19],work:[20,23],rest:[24,25],talk:[26,27],camera:[28,29],'work-up':[30,33],'rest-up':[34,35],'rest-left':[36,37],'rest-right':[38,39],'camera-up':[40,41],'talk-left':[42,43],'talk-right':[44,45],'talk-up':[46,47]};
+const characterClips=RESIDENT_CLIPS;
 const appearanceIdentity=(agent,index)=>JSON.stringify([agent.id,agent.name,agent.color,index]);
 const clip=(n,a,b)=>Math.max(a,Math.min(b,n));
 const pathLength=path=>path.slice(1).reduce((sum,p,i)=>sum+Math.hypot(p[0]-path[i][0],p[1]-path[i][1]),0);
@@ -51,9 +53,10 @@ export function createTownScene(host,{onSelect=()=>{},onCameraChange=()=>{},onEx
       if(scene?.ready)try{scene.applyFrame(pending);}catch(error){reportError(error);}
     },
     zoomIn(){zoom=clampZoom(zoom+.25);scene?.applyCamera();notifyCamera();},
+    isTransitioning(){return !!scene&&[...scene.characters.values()].some(actor=>actor.moving||actor.transitioning);},
     zoomOut(){zoom=clampZoom(zoom-.25);scene?.applyCamera();notifyCamera();},
     resetCamera(){zoom=1;following=false;explorerFollowing=false;scene?.applyCamera(true);notifyCamera();},
-    setFollow(value){following=!!value;explorerFollowing=false;if(following)zoom=Math.max(2.2,zoom);scene?.applyCamera();notifyCamera();},
+    setFollow(value){following=!!value;explorerFollowing=false;if(following)zoom=Math.max(3,zoom);scene?.applyCamera();notifyCamera();},
     setExplore(value){exploring=!!value;following=false;explorerFollowing=exploring;if(exploring)zoom=Math.max(2.2,zoom);scene?.toggleExplore();scene?.applyCamera();notifyExplore('',true);notifyCamera();},
     focusZone(zone){
       const point=ZONE_CENTERS[zone];if(!point)return;
@@ -113,7 +116,7 @@ export function createTownScene(host,{onSelect=()=>{},onCameraChange=()=>{},onEx
     finishPointer(pointer){
       const drag=this.drag;this.drag=null;this.game.canvas.style.cursor=exploring?'crosshair':'grab';if(!drag||drag.moved)return;
       const point=this.cameras.main.getWorldPoint(pointer.x,pointer.y);
-      const hit=[...this.characters.values()].filter(c=>Math.abs(c.container.x-point.x)<23&&point.y<c.container.y+9&&point.y>c.container.y-58).sort((a,b)=>b.container.y-a.container.y)[0];
+      const hit=[...this.characters.values()].filter(c=>Math.abs(c.container.x-point.x)<29&&point.y<c.container.y+SEATED_OFFSET+9&&point.y>c.container.y-84).sort((a,b)=>b.container.y-a.container.y)[0];
       if(hit){onSelect(hit.id);return;}
       const object=this.hitObject(point);
       if(object){if(exploring&&object.approach)this.walkVisitor(object.approach,{object});else onInspectObject(object);return;}
@@ -154,50 +157,93 @@ export function createTownScene(host,{onSelect=()=>{},onCameraChange=()=>{},onEx
       this.buildVisitor();this.built=true;this.toggleExplore();
     }
     registerCharacterAnimations(id,texture){
-      for(const [name,[start,end]] of Object.entries(characterClips)){const key=`${id}-${name}`;if(this.anims.exists(key))this.anims.remove(key);this.anims.create({key,frames:this.anims.generateFrameNumbers(texture,{start,end}),frameRate:name.startsWith('rest')?2:7,repeat:-1});}
+      for(const [name,{start,end,...timing}] of Object.entries(characterClips)){const key=`${id}-${name}`;if(this.anims.exists(key))this.anims.remove(key);this.anims.create({key,frames:this.anims.generateFrameNumbers(texture,{start,end}),...timing});}
     }
     addCharacter(agent,texture,index){
-      this.registerCharacterAnimations(agent.id,texture);const shadow=this.add.ellipse(0,-1,27,9,0x243b34,.22),ring=this.add.ellipse(0,-1,37,13).setStrokeStyle(2,0xffe0a0).setVisible(false),sprite=this.add.sprite(0,0,texture,0).setOrigin(.5,1).setScale(.56);
+      this.registerCharacterAnimations(agent.id,texture);const shadow=this.add.ellipse(0,-1,34,11,0x243b34,.22),ring=this.add.ellipse(0,-1,45,16).setStrokeStyle(2,0xffe0a0).setVisible(false),sprite=this.add.sprite(0,0,texture,0).setOrigin(.5,1).setScale(RESIDENT_SCALE);
       const name=this.text(0,4,agent.name,12,'#f3f4e9',{fontStyle:'bold',backgroundColor:'#354a43',padding:{x:5,y:2}}).setOrigin(.5,0);
       const action=this.text(0,25,'',10,'#526350',{backgroundColor:'#f4eedb',padding:{x:4,y:2}}).setOrigin(.5,0);
-      const equipment=this.text(18,-50,'',10,'#fffaf0',{backgroundColor:'#285649',padding:{x:4,y:2}}).setOrigin(0,1).setVisible(false);
+      const equipment=this.text(24,-73,'',10,'#fffaf0',{backgroundColor:'#285649',padding:{x:4,y:2}}).setOrigin(0,1).setVisible(false);
       const container=this.add.container(0,0,[shadow,ring,sprite]);
       // Furniture occludes the body by foot position, but names and activity
       // labels stay readable when someone sits beside a southern wall.
       const badges=this.add.container(0,0,[name,action,equipment]).setDepth(3400+index);
-      this.characters.set(agent.id,{id:agent.id,container,badges,sprite,ring,name,action,equipment,appearance:appearanceIdentity(agent,index),direction:'down',zone:agent.zone,path:null,motion:null,moving:false,presentation:null,animationKey:null,anchor:null});
+      this.characters.set(agent.id,{id:agent.id,container,badges,sprite,shadow,ring,name,action,equipment,appearance:appearanceIdentity(agent,index),direction:'down',zone:agent.zone,path:null,motion:null,poseTween:null,transitioning:false,seated:false,moving:false,presentation:null,animationKey:null,anchor:null});
     }
     syncCharacters(frame){
       const changed=frame.agents.some((agent,index)=>this.characters.get(agent.id)?.appearance!==appearanceIdentity(agent,index));for(const agent of frame.agents){const actor=this.characters.get(agent.id);if(actor&&actor.name.text!==agent.name)actor.name.setText(agent.name);}if(!changed)return false;
       const assets=townAssets.registerTownAssets(this,frame.agents);this.assets=assets;
-      for(const [index,agent] of frame.agents.entries()){const actor=this.characters.get(agent.id),identity=appearanceIdentity(agent,index);if(!actor){this.addCharacter(agent,assets.characterKeys[agent.id],index);continue;}if(actor.appearance===identity)continue;actor.motion?.stop();actor.motion=null;actor.moving=false;actor.sprite.anims.stop();actor.animationKey=null;this.registerCharacterAnimations(agent.id,assets.characterKeys[agent.id]);actor.sprite.setTexture(assets.characterKeys[agent.id],0);actor.appearance=identity;actor.direction='down';}
+      for(const [index,agent] of frame.agents.entries()){const actor=this.characters.get(agent.id),identity=appearanceIdentity(agent,index);if(!actor){this.addCharacter(agent,assets.characterKeys[agent.id],index);continue;}if(actor.appearance===identity)continue;actor.motion?.stop();actor.poseTween?.stop();actor.motion=actor.poseTween=null;actor.transitioning=false;actor.seated=false;actor.moving=false;this.bodyOffset(actor,0);actor.sprite.anims.stop();actor.animationKey=null;this.registerCharacterAnimations(agent.id,assets.characterKeys[agent.id]);actor.sprite.setTexture(assets.characterKeys[agent.id],0);actor.appearance=identity;actor.direction='down';}
       return true;
     }
-    play(actor,name,active){const key=`${actor.id}-${name}`;if(actor.animationKey!==key){actor.sprite.play(key,true);actor.animationKey=key;}if(active)actor.sprite.anims.resume();else actor.sprite.anims.pause();}
-    settle(actor){
-      actor.moving=false;const p=actor.presentation;if(!p)return;actor.sprite.setScale(.56,actor.anchor?.seated&&p.pose==='work' ? .50 : .56);actor.sprite.y=0;if(actor.anchor?.facing)actor.direction=actor.anchor.facing;
-      if(p.target){const target=this.characters.get(p.target);if(target)actor.direction=directionBetween([actor.container.x,actor.container.y],[target.container.x,target.container.y],actor.direction);}
-      const active=this.options.playing&&!this.options.reducedMotion;
-      const directional=`${p.pose}-${actor.direction}`;
-      if(p.pose!=='idle')this.play(actor,characterClips[directional]?directional:p.pose,active);else{actor.sprite.anims.stop();actor.sprite.setFrame(idleFrames[actor.direction]);actor.animationKey=null;}
+    play(actor,name,active){
+      const key=`${actor.id}-${name}`;
+      if(actor.animationKey!==key){actor.sprite.play(key,true);actor.animationKey=key;}
+      actor.sprite.anims.timeScale=motionRate(this.options.duration);
+      if(active)actor.sprite.anims.resume();else actor.sprite.anims.pause();
     }
-    place(actor,point){actor.container.setPosition(point[0],point[1]).setDepth(point[1]+.1);actor.badges.setPosition(point[0],point[1]);}
+    bodyOffset(actor,y){
+      actor.sprite.setScale(RESIDENT_SCALE).setY(y);
+      actor.shadow.setY(y>0?y-2:-1).setScale(y>0?.8:1);
+      actor.badges.setPosition(actor.container.x,actor.container.y+Math.max(0,y));
+    }
+    posture(actor,seated,complete){
+      const from=actor.sprite.y,to=seated?SEATED_OFFSET:0,progress={value:0};
+      actor.poseTween?.stop();actor.sprite.anims.stop();actor.animationKey=null;actor.transitioning=true;
+      const start=characterClips[`sit-${actor.direction}`].start;actor.poseSpeed=motionRate(this.options.duration);
+      actor.poseTween=this.tweens.add({targets:progress,value:1,duration:480/motionRate(this.options.duration),ease:'Sine.easeInOut',onUpdate:()=>{
+        const t=progress.value;this.bodyOffset(actor,from+(to-from)*t);
+        actor.sprite.setFrame(start+Math.min(3,Math.floor((seated?t:1-t)*4)));
+      },onComplete:()=>{actor.poseTween=null;actor.transitioning=false;actor.seated=seated;this.bodyOffset(actor,to);complete?.();this.layoutBubbles();}});
+    }
+    settle(actor,animate=false){
+      actor.moving=false;const p=actor.presentation;if(!p||actor.transitioning)return;
+      if(actor.anchor?.facing)actor.direction=actor.anchor.facing;
+      if(p.target&&!actor.anchor?.seated){const target=this.characters.get(p.target);if(target)actor.direction=directionBetween([actor.container.x,actor.container.y],[target.container.x,target.container.y],actor.direction);}
+      const seated=!!actor.anchor?.seated,pose=seatedPose(p,actor.anchor);
+      const finished=()=>{actor.seated=seated;this.bodyOffset(actor,seated?SEATED_OFFSET:0);const directional=`${pose}-${actor.direction}`;this.play(actor,characterClips[directional]?directional:pose,this.options.playing&&!this.options.reducedMotion);};
+      if(animate&&!this.options.reducedMotion&&actor.seated!==seated)this.posture(actor,seated,finished);else finished();
+    }
+    place(actor,point){actor.container.setPosition(point[0],point[1]).setDepth(point[1]+.1);actor.badges.setPosition(point[0],point[1]+Math.max(0,actor.sprite.y));}
+    walk(actor,destination,distance){
+      const begin=()=>{
+        this.bodyOffset(actor,0);actor.seated=false;actor.moving=true;actor.sprite.anims.stop();actor.animationKey=null;
+        const progress={value:0};actor.motionSpeed=motionRate(this.options.duration);
+        actor.motion=this.tweens.add({targets:progress,value:1,duration:walkDuration(distance,this.options.duration),ease:'Linear',onUpdate:()=>{
+          const next=samplePath(actor.path,progress.value);actor.direction=directionBetween([actor.container.x,actor.container.y],next,actor.direction);this.place(actor,next);
+          // Match stride to ground travelled rather than looping unrelated feet.
+          actor.sprite.setFrame(characterClips[actor.direction].start+Math.floor(progress.value*distance/72*8)%8);
+        },onComplete:()=>{actor.motion=null;this.place(actor,destination);this.settle(actor,true);this.layoutBubbles();}});
+      };
+      actor.moving=true;
+      if(actor.seated)this.posture(actor,false,begin);else begin();
+    }
     applyFrame({frame,options}){
       if(!frame)return;if(!this.built)this.build(frame);const identitiesChanged=this.syncCharacters(frame),previous=this.frame,oldOptions=this.options;
       const same=!identitiesChanged&&previous&&previous.tick===frame.tick&&previous.config.seed===frame.config.seed&&previous.config.capacity===frame.config.capacity,continuous=!identitiesChanged&&isContinuousFrame(previous,frame);this.frame=frame;this.options=options;
       for(const agent of frame.agents){
         const actor=this.characters.get(agent.id);if(!actor)continue;actor.ring.setVisible(agent.id===options.selected);
-        if(same){if(options.reducedMotion&&actor.moving){actor.motion?.stop();this.place(actor,actor.destination);this.settle(actor);}else if(actor.moving&&oldOptions.playing!==options.playing){if(options.playing){actor.motion?.resume();actor.sprite.anims.resume();}else{actor.motion?.pause();actor.sprite.anims.pause();}}else if(!actor.moving)this.settle(actor);continue;}
+        if(same){
+          if(actor.motion)actor.motion.timeScale=motionRate(options.duration)/(actor.motionSpeed||1);
+          if(actor.poseTween)actor.poseTween.timeScale=motionRate(options.duration)/(actor.poseSpeed||1);
+          if(options.reducedMotion&&(actor.moving||actor.transitioning)){
+            actor.motion?.stop();actor.poseTween?.stop();actor.motion=actor.poseTween=null;actor.transitioning=false;
+            this.place(actor,actor.destination);this.settle(actor);
+          }else if(actor.moving||actor.transitioning){
+            if(options.playing){actor.motion?.resume();actor.poseTween?.resume();}
+            else if(oldOptions.playing||options.animate===false){actor.motion?.pause();actor.poseTween?.pause();actor.sprite.anims.pause();}
+          }else this.settle(actor);
+          continue;
+        }
         // Complete an interrupted display step before deriving its next grid path.
         if(continuous&&actor.moving&&actor.destination)this.place(actor,actor.destination);
-        actor.motion?.stop();actor.motion=null;actor.presentation=characterPresentation(frame,agent.id);actor.anchor=activityAnchor(agent,frame);const p=actor.presentation;
+        actor.motion?.stop();actor.poseTween?.stop();actor.motion=actor.poseTween=null;actor.transitioning=false;actor.presentation=characterPresentation(frame,agent.id);actor.anchor=activityAnchor(agent,frame);const p=actor.presentation;
         actor.action.setText(p.failed?'未能執行':actor.anchor?.label||(p.proposal?ACTION_NAMES[p.proposal.action]:'觀察中')).setColor(p.failed?'#a46e51':'#6e7768');actor.equipment.setVisible(!!p.held);if(p.held)actor.equipment.setText(`${p.held.type==='camera'?'相機':'工具'}${p.held.usableFrom>frame.tick?' · 下步可用':''}`);
         const destination=characterPosition(agent,frame),from=previous?[actor.container.x,actor.container.y]:destination,oldAgent=previous?.agents.find(a=>a.id===agent.id);
         actor.path=presentationPath(from,destination,oldAgent?.zone??agent.zone,agent.zone);actor.destination=destination;actor.zone=agent.zone;const distance=pathLength(actor.path);
         if(continuous&&options.animate!==false&&!options.reducedMotion&&distance>1){
-          const progress={value:0};actor.moving=true;actor.sprite.setScale(.56);
-          actor.motion=this.tweens.add({targets:progress,value:1,duration:Math.max(180,options.duration),ease:'Linear',onUpdate:()=>{const next=samplePath(actor.path,progress.value);actor.direction=directionBetween([actor.container.x,actor.container.y],next,actor.direction);this.place(actor,next);this.play(actor,actor.direction,true);},onComplete:()=>{this.place(actor,destination);this.settle(actor);this.layoutBubbles();}});
-        }else{this.place(actor,destination);this.settle(actor);}
+          this.walk(actor,destination,distance);
+        }else{this.place(actor,destination);this.settle(actor,continuous&&options.animate!==false);}
       }
       if(!same){for(const actor of this.characters.values())if(!actor.moving)this.settle(actor);this.makeBubbles(frame,options.selected);this.updateWorldLabels(frame);}else if(oldOptions.selected!==options.selected)this.makeBubbles(frame,options.selected);
       for(const tween of this.ambientTweens){if(options.playing&&!options.reducedMotion)tween.resume();else tween.pause();}this.updateBadges();if(following&&oldOptions.selected!==options.selected)this.applyCamera();this.layoutBubbles();
@@ -218,7 +264,7 @@ export function createTownScene(host,{onSelect=()=>{},onCameraChange=()=>{},onEx
     }
     layoutBubbles(){
       const placed=[];
-      for(const bubble of this.bubbles){const {actor,container,width,height}=bubble;container.setVisible(!actor.moving);const idealX=actor.container.x-width/2,idealY=actor.container.y-height-64,candidates=[];
+      for(const bubble of this.bubbles){const {actor,container,width,height}=bubble;container.setVisible(!actor.moving&&!actor.transitioning);const idealX=actor.container.x-width/2,idealY=actor.container.y-height-88,candidates=[];
         for(const dy of [0,-height-12,height+118])for(const dx of [0,-width-8,width+8]){const x=clip(idealX+dx,10,W-width-10),y=clip(idealY+dy,8,H-height-10),overlaps=placed.reduce((sum,p)=>sum+(x<p.x+p.width+8&&x+width+8>p.x&&y<p.y+p.height+8&&y+height+8>p.y?1:0),0);candidates.push({x,y,score:overlaps*10000000+(x-idealX)**2+(y-idealY)**2});}
         const {x,y}=candidates.sort((a,b)=>a.score-b.score)[0];container.setPosition(x,y);placed.push({x,y,width,height});
       }
@@ -275,7 +321,12 @@ export function createTownScene(host,{onSelect=()=>{},onCameraChange=()=>{},onEx
       v.direction=directionBetween(before,point,v.direction);v.container.setPosition(...point).setDepth(point[1]+.2);v.badges.setPosition(...point);v.walkPhase+=Math.min(delta,50);v.sprite.setFrame(idleFrames[v.direction]*4+(this.options.reducedMotion?0:Math.floor(v.walkPhase/120)%4));
       if(v.progress>=v.distance){const object=v.pendingObject;this.stopVisitor();if(object)onInspectObject(object);}notifyExplore();
     }
-    update(time,delta){this.updateVisitor(delta);if(this.bubbles.some(b=>b.actor.moving))this.layoutBubbles();notifyCamera();}
+    update(time,delta){
+      this.updateVisitor(delta);if(this.bubbles.some(b=>b.actor.moving||b.actor.transitioning))this.layoutBubbles();notifyCamera();
+      // Rendered positions are exposed for playback/accessibility diagnostics,
+      // never read by the simulation or used to determine research outcomes.
+      if(this.built)this.game.canvas.dataset.residentStates=JSON.stringify([...this.characters.values()].map(a=>({id:a.id,x:Math.round(a.container.x),y:Math.round(a.container.y),offset:Math.round(a.sprite.y),scale:a.sprite.scaleX,frame:Number(a.sprite.frame.name),moving:a.moving,transitioning:a.transitioning,seated:a.seated})));
+    }
   }
   try{
     game=new Phaser.Game({type:Phaser.AUTO,parent:host,width:VIEW_WIDTH*dpr,height:viewHeight*dpr,backgroundColor:'#dce5c5',banner:false,scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH,width:VIEW_WIDTH*dpr,height:viewHeight*dpr,expandParent:false},render:{pixelArt:true,roundPixels:true},audio:{noAudio:true},fps:{target:60},scene:TownScene});

@@ -1,6 +1,7 @@
 // Original pixel characters for the town; no third-party character art.
 // Every 64 × 96 frame uses one 32 × 48 logical grid and a shared foot anchor.
 // Frames are drawn together so identity, palette and scale cannot drift between poses.
+import { RESIDENT_FRAME_COUNT } from './resident-motion.js';
 export const RESIDENT_FRAME = Object.freeze({ width:64, height:96 });
 
 const PEOPLE = {
@@ -42,8 +43,16 @@ function palette(agent){
   const p=PEOPLE[agent.name]??FALLBACK,main=/^#[a-f0-9]{6}$/i.test(agent.color)?agent.color:'#367760';
   return {...p,main,light:shade(main,26),deep:shade(main,-27),skinLight:shade(p.skin,20),skinShadow:shade(p.skin,-23),hairLight:shade(p.hair,29),hairDark:shade(p.hair,-14)};
 }
-function identity(agent){const p=palette(agent);return `resident-detail-v3-${p.id}-${p.main.slice(1).toLowerCase()}`;}
+function identity(agent){const p=palette(agent);return `resident-detail-v4-${p.id}-${p.main.slice(1).toLowerCase()}`;}
 function poseFor(frame){
+  const directions=['down','left','right','up'];
+  if(frame>=176)return {direction:directions[Math.floor((frame-176)/4)],motion:'idle',phase:(frame-176)%4,smooth:true};
+  if(frame>=160)return {direction:frame<168?'down':'up',motion:'camera',phase:(frame-160)%8,smooth:true};
+  if(frame>=144)return {direction:frame<152?'down':'up',motion:'work',phase:(frame-144)%8,smooth:true};
+  if(frame>=112)return {direction:directions[Math.floor((frame-112)/8)],motion:'talk',phase:(frame-112)%8,smooth:true};
+  if(frame>=96)return {direction:directions[Math.floor((frame-96)/4)],motion:'rest',phase:(frame-96)%4,smooth:true,seated:1};
+  if(frame>=80)return {direction:directions[Math.floor((frame-80)/4)],motion:'sit',phase:(frame-80)%4,smooth:true,seated:[0,.25,.7,1][(frame-80)%4]};
+  if(frame>=48)return {direction:directions[Math.floor((frame-48)/8)],motion:'walk',phase:(frame-48)%8,smooth:true};
   if(frame>=46)return {direction:'up',motion:'talk',phase:frame-46};
   if(frame>=44)return {direction:'right',motion:'talk',phase:frame-44};
   if(frame>=42)return {direction:'left',motion:'talk',phase:frame-42};
@@ -64,6 +73,7 @@ function boot(c,x,y,p,side=false){
   rect(c,x+1,y+1,3,1,shade(p.shoes,30));if(!side)rect(c,x+2,y+2,3,1,'#a59880');
 }
 function legs(c,p,pose,side,back){
+  if(pose.smooth){naturalLegs(c,p,pose,side,back);return;}
   const stride=pose.motion==='walk'?[0,2,0,-2][pose.phase]:0;
   if(pose.motion==='rest'){
     if(side){rect(c,12,34,9,5,p.pants);rect(c,7,37,9,4,p.pants);rect(c,7,39,4,4,p.deep);rect(c,14,39,4,4,p.pants);boot(c,5,42,p,true);boot(c,12,42,p,true);}
@@ -79,6 +89,43 @@ function legs(c,p,pose,side,back){
       const footY=42+Math.min(0,step);
       rect(c,x,33,5,footY-31,p.pants);rect(c,x+1,35,2,footY-35,shade(p.pants,shift+16));rect(c,x,footY-1,5,2,shade(p.pants,-18));boot(c,x-1,footY,p);
       if(back)rect(c,x,footY+2,4,1,shade(p.shoes,-12));
+    }
+    rect(c,14,33,4,3,shade(p.pants,-18));
+  }
+}
+function naturalLegs(c,p,pose,side,back){
+  const seated=pose.motion==='rest'?1:pose.motion==='sit'?pose.seated:0;
+  if(seated){
+    const hip=33+Math.round(seated*5),knee=38+Math.round(seated*2);
+    if(side){
+      const front=13-Math.round(seated*6);
+      polygon(c,[[12,hip],[21,hip],[21,knee],[front+4,knee+1],[front+4,45],[front,45],[front,knee-3],[14,knee-3]],p.pants);
+      polygon(c,[[17,hip],[22,hip],[22,knee],[front+10,knee+2],[front+9,45],[front+5,45],[front+5,knee-1],[17,knee-1]],shade(p.pants,-16));
+      rect(c,front+1,knee,2,4,shade(p.pants,21));boot(c,front-2,42,p,true);boot(c,front+6,42,p,true);
+    }else{
+      polygon(c,[[9,hip],[23,hip],[23,knee],[20,knee+2],[12,knee+2],[9,knee]],p.pants);
+      rect(c,9,knee,5,46-knee,p.pants);rect(c,18,knee,5,46-knee,shade(p.pants,-14));
+      rect(c,10,knee+1,2,Math.max(1,44-knee),shade(p.pants,20));boot(c,8,42,p);boot(c,18,42,p);
+    }
+    return;
+  }
+  if(pose.motion!=='walk'){
+    // Stable planted feet while idle, talking, working and taking pictures.
+    legs(c,p,{...pose,smooth:false,motion:'idle',phase:0},side,back);return;
+  }
+  const stride=[-2,-1,0,1,2,1,0,-1][pose.phase];
+  const nearLift=[0,0,0,0,0,1,2,1][pose.phase],farLift=[0,1,2,1,0,0,0,0][pose.phase];
+  if(side){
+    const far=15-stride,near=14+stride;
+    polygon(c,[[13,33],[19,33],[far+5,38],[far+4,45-farLift],[far-1,45-farLift],[far-1,39]],shade(p.pants,-16));boot(c,far-3,42-farLift,p,true);
+    polygon(c,[[12,33],[18,33],[near+5,38],[near+3,45-nearLift],[near-2,45-nearLift],[near-3,39]],p.pants);
+    rect(c,near,36,2,Math.max(2,6-nearLift),shade(p.pants,20));boot(c,near-4,42-nearLift,p,true);
+  }else{
+    for(const [x,lift,knee]of [[10,nearLift,stride],[18,farLift,-stride]]){
+      const shift=Math.abs(knee)===2?Math.sign(knee):0,y=42-lift;
+      polygon(c,[[x,33],[x+5,33],[x+5+shift,38],[x+5,y+2],[x,y+2],[x+shift,38]],p.pants);
+      rect(c,x+1+shift,35,2,Math.max(2,y-35),shade(p.pants,x===10?21:6));boot(c,x-1,y,p);
+      if(back)rect(c,x,y+2,4,1,shade(p.shoes,-12));
     }
     rect(c,14,33,4,3,shade(p.pants,-18));
   }
@@ -138,16 +185,24 @@ function torso(c,p,side,back){
 function hand(c,x,y,p){rect(c,x,y,3,4,p.skinShadow);rect(c,x,y,2,3,p.skin);rect(c,x,y,1,2,p.skinLight);}
 function arm(c,x,y,p,near=false){rect(c,x,y,3,8,near?p.deep:p.main);rect(c,x,y,1,5,near?p.main:p.light);rect(c,x,y+7,3,1,p.accent);hand(c,x,y+8,p);}
 function arms(c,p,pose,side,back){
-  const stride=pose.motion==='walk'?[0,2,0,-2][pose.phase]:0;
+  const stride=pose.motion==='walk'?(pose.smooth?[2,1,0,-1,-2,-1,0,1][pose.phase]:[0,2,0,-2][pose.phase]):0;
+  if(pose.motion==='sit'){
+    const lower=Math.round(pose.seated*2);
+    if(side){rect(c,16,25,3,7-lower,p.main);rect(c,12,30-lower,6,3,p.deep);hand(c,10,30-lower,p);}
+    else {rect(c,6,25,3,7-lower,p.main);rect(c,23,25,3,7-lower,p.deep);hand(c,8,30-lower,p);hand(c,21,30-lower,p);}
+    return;
+  }
   if(['idle','walk'].includes(pose.motion)){if(side)arm(c,16+stride,25,p,true);else{arm(c,6,25+stride,p);arm(c,23,25-stride,p,true);}return;}
   if(pose.motion==='talk'){
-    if(side){rect(c,15,25,3,7,p.main);polygon(c,[[15,30],[10,27-pose.phase],[7,28-pose.phase],[11,33],[17,33]],p.main);hand(c,6,25-pose.phase,p);rect(c,5,24-pose.phase,1,2,p.skin);}
-    else if(back){arm(c,6,25,p);rect(c,23,25,3,7,p.deep);rect(c,25,23-pose.phase,3,8,p.main);hand(c,25,20-pose.phase,p);}
-    else {arm(c,6,25,p);polygon(c,[[23,25],[26,26],[28,30],[28,24-pose.phase*2],[31,24-pose.phase*2],[31,33],[27,35],[23,31]],p.main);hand(c,28,20-pose.phase*2,p);rect(c,27,20-pose.phase*2,1,3,p.skin);}
+    const gesture=pose.smooth?[0,0,1,2,2,1,0,0][pose.phase]:pose.phase;
+    if(pose.smooth&&gesture===0){if(side)arm(c,16,25,p,true);else{arm(c,6,25,p);arm(c,23,25,p,true);}return;}
+    if(side){rect(c,15,25,3,7,p.main);polygon(c,[[15,30],[10,27-gesture],[7,28-gesture],[11,33],[17,33]],p.main);hand(c,6,25-gesture,p);rect(c,5,24-gesture,1,2,p.skin);}
+    else if(back){arm(c,6,25,p);rect(c,23,25,3,7,p.deep);rect(c,25,23-gesture,3,8,p.main);hand(c,25,20-gesture,p);}
+    else {arm(c,6,25,p);polygon(c,[[23,25],[26,26],[28,30],[28,24-gesture*2],[31,24-gesture*2],[31,33],[27,35],[23,31]],p.main);hand(c,28,20-gesture*2,p);rect(c,27,20-gesture*2,1,3,p.skin);}
     return;
   }
   if(pose.motion==='rest'){
-    const page=pose.phase;
+    const page=pose.smooth?[0,1,0,0][pose.phase]:pose.phase;
     // From behind the reader, the book and inward-facing palms are hidden by
     // the torso. Only the outside sleeves and a quiet shoulder shift are seen.
     if(back){rect(c,6,25+page,3,8,p.main);rect(c,6,26+page,1,5,p.light);rect(c,23,25+page,3,8,p.deep);rect(c,7,32+page,2,2,p.skinShadow);rect(c,23,32+page,2,2,p.skinShadow);}
@@ -156,19 +211,19 @@ function arms(c,p,pose,side,back){
     return;
   }
   if(pose.motion==='work'){
-    const lift=[0,2,5,2][pose.phase];
+    const lift=pose.smooth?[0,0,2,5,6,3,0,0][pose.phase]:[0,2,5,2][pose.phase];
     if(back){rect(c,7,24,3,7,p.main);hand(c,6,22-lift,p);rect(c,24,24,3,7,p.deep);hand(c,24,23,p);rect(c,7,17-lift,2,9,'#b58a54');rect(c,4,16-lift,8,3,'#65838b');rect(c,5,16-lift,6,1,'#b7cbd0');}
     else {rect(c,6,26,3,7,p.main);rect(c,9,31,6,3,p.main);hand(c,13,31,p);rect(c,15,34,7,2,'#b78d62');rect(c,23,25-lift,3,8,p.deep);hand(c,26,24-lift,p);rect(c,28,18-lift,2,14,'#b58a54');rect(c,25,17-lift,7,3,'#65838b');rect(c,26,17-lift,5,1,'#b7cbd0');}
     return;
   }
   if(pose.motion==='camera'){
-    const y=pose.phase?16:26;
+    const y=pose.smooth?[28,28,25,21,16,16,18,25][pose.phase]:pose.phase?16:26;
     if(back){rect(c,6,25,3,7,p.main);rect(c,23,25,3,7,p.deep);hand(c,5,y+2,p);rect(c,4,y,9,7,'#263d43');rect(c,5,y+1,7,2,'#718b91');rect(c,8,y+3,3,3,'#9bc0c3');rect(c,6,y-1,4,1,'#263d43');}
     else {polygon(c,[[6,26],[9,25],[12,y+4],[11,y+7],[7,y+6]],p.main);polygon(c,[[24,25],[26,26],[25,y+7],[21,y+7],[20,y+4]],p.deep);hand(c,10,y+2,p);hand(c,20,y+2,p);rect(c,11,y,11,7,'#263d43');rect(c,13,y-1,4,1,'#263d43');rect(c,12,y+1,9,2,'#607f8a');rect(c,16,y+2,5,4,'#a5c3c0');rect(c,17,y+3,3,3,'#274b5f');rect(c,18,y+3,1,1,'#e3eee0');rect(c,12,y+3,2,2,'#c8a277');}
   }
 }
 function head(c,p,pose,side,back){
-  const blink=pose.motion==='rest'&&pose.phase===1;
+  const blink=pose.smooth?((pose.motion==='rest'||pose.motion==='idle')&&pose.phase===3):pose.motion==='rest'&&pose.phase===1;
   rect(c,13,21,7,4,p.skinShadow);rect(c,14,21,5,3,p.skin);
   polygon(c,side?[[11,6],[21,6],[24,10],[24,18],[21,22],[13,22],[9,19],[9,17],[7,16],[8,14],[9,14],[9,10]]:[[10,6],[22,6],[25,10],[25,18],[22,22],[11,22],[7,18],[7,11]],p.skinShadow);
   rect(c,side?10:9,10,side?12:14,9,p.skin);rect(c,side?10:9,11,3,7,p.skinLight);rect(c,12,19,9,2,p.skin);
@@ -184,7 +239,8 @@ function head(c,p,pose,side,back){
     if(side){glass(7);rect(c,13,15,9,1,rim);}else{glass(8);glass(18);rect(c,14,15,4,1,rim);}
   }
   if(p.accessory==='scarf'){polygon(c,[[11,22],[16,24],[22,22],[23,25],[18,27],[11,25]],'#c8a269');rect(c,19,26,4,6,'#d7b980');rect(c,20,26,1,5,'#edd4a3');rect(c,19,32,1,2,'#9b7750');rect(c,22,32,1,2,'#9b7750');}
-  if(!back&&pose.motion==='talk'&&pose.phase){rect(c,side?10:14,20,side?3:5,2,'#8e5549');rect(c,side?10:14,20,side?2:4,1,'#f2d7ba');}
+  const speaking=pose.smooth?[false,false,true,true,false,true,false,false][pose.phase]:pose.phase;
+  if(!back&&pose.motion==='talk'&&speaking){rect(c,side?10:14,20,side?3:5,2,'#8e5549');rect(c,side?10:14,20,side?2:4,1,'#f2d7ba');}
 }
 function hairStyle(c,p,side,back){
   // A common outer contour keeps every direction at the same physical scale.
@@ -217,18 +273,25 @@ function drawResident(c,agent,frame){
   const p=palette(agent),pose=poseFor(frame),side=['left','right'].includes(pose.direction),back=pose.direction==='up';
   const tile=canvas(32,48),t=tile.getContext('2d');t.imageSmoothingEnabled=false;t.save();
   if(pose.direction==='right'){t.translate(32,0);t.scale(-1,1);}
-  // Only the upper body bobs; the planted foot remains on the shared baseline.
-  legs(t,p,pose,side,back);t.save();if(pose.motion==='walk'&&pose.phase%2)t.translate(0,-1);
+  // Seat motion lowers the torso and head while knees fold above planted feet.
+  // It does not squash the sprite or move its ground anchor.
+  legs(t,p,pose,side,back);t.save();
+  if(pose.smooth){
+    if(pose.motion==='walk')t.translate(0,[0,0,-1,-1,0,0,-1,-1][pose.phase]);
+    else if(pose.motion==='sit'||pose.motion==='rest')t.translate(0,Math.round((pose.seated??1)*5));
+    else if(pose.motion==='idle')t.translate(0,pose.phase===1?1:0);
+    else if(pose.motion==='talk'&&[3,4].includes(pose.phase))t.translate(side?-1:0,1);
+  }else if(pose.motion==='walk'&&pose.phase%2)t.translate(0,-1);
   hairBack(t,p,side);torso(t,p,side,back);head(t,p,pose,side,back);arms(t,p,pose,side,back);t.restore();t.restore();
   c.imageSmoothingEnabled=false;c.drawImage(tile,0,0,64,96);
 }
-/** Keep the 48-frame adapter contract, with one sheet per named identity. */
+/** Preserve the first 48 frames and add natural motion clips in the same atlas. */
 export function registerResidentAssets(scene,agents){
   const characterKeys={};
   for(const agent of agents){const key=identity(agent);if(!scene.textures.exists(key)){
-    const sheet=canvas(640,480),c=sheet.getContext('2d');
-    for(let frame=0;frame<48;frame++){c.save();c.translate(frame%10*64,Math.floor(frame/10)*96);c.beginPath();c.rect(0,0,64,96);c.clip();drawResident(c,agent,frame);c.restore();}
-    scene.textures.addSpriteSheet(key,sheet,{frameWidth:64,frameHeight:96,endFrame:47});
+    const columns=16,sheet=canvas(columns*64,Math.ceil(RESIDENT_FRAME_COUNT/columns)*96),c=sheet.getContext('2d');
+    for(let frame=0;frame<RESIDENT_FRAME_COUNT;frame++){c.save();c.translate(frame%columns*64,Math.floor(frame/columns)*96);c.beginPath();c.rect(0,0,64,96);c.clip();drawResident(c,agent,frame);c.restore();}
+    scene.textures.addSpriteSheet(key,sheet,{frameWidth:64,frameHeight:96,endFrame:RESIDENT_FRAME_COUNT-1});
   }characterKeys[agent.id]=key;}
   return {characterKeys};
 }
@@ -240,7 +303,7 @@ export function residentPortrait(agent){
 }
 /** Read-only artwork preview for local visual QA, independent of simulation state. */
 export function residentPreview(agent,frame=0){
-  const preview=canvas(64,96),index=Number.isFinite(frame)?Math.max(0,Math.min(47,Math.trunc(frame))):0;
+  const preview=canvas(64,96),index=Number.isFinite(frame)?Math.max(0,Math.min(RESIDENT_FRAME_COUNT-1,Math.trunc(frame))):0;
   drawResident(preview.getContext('2d'),agent,index);
   return preview.toDataURL('image/png');
 }
