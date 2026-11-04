@@ -4,6 +4,7 @@ import { exportRun } from './src/replay.js';
 import { viewFrame } from './src/presentation.js';
 import { residentPortrait } from './src/resident-art.js';
 import { WORLD_SIZE } from './src/town-view-model.js';
+import { activityAnchor, createMinimapDataUrl } from './src/town-map.js';
 import { createTownScene } from './src/town-scene.js';
 import { ZONES, dayOf, slotOf, ACTION_NAMES } from './src/config.js';
 
@@ -21,9 +22,19 @@ let timer = null, busy = false, worker = null, toastTimer;
 const frame = () => frames[viewed];
 const pastEvents = () => state.events.filter(event => event.tick <= viewed);
 const actor = id => frame().agents.find(a => a.id === id);
-let cameraFollowing = false;
+let cameraFollowing = false, exploring = false, inspectedObject = null;
 const scene = createTownScene($('town-stage'), {
   onSelect: id => selectAgent(id),
+  onExploreChange: ({active,moving,locationName,message}) => {
+    exploring=active;
+    $('explore-toggle').setAttribute('aria-pressed',String(active));
+    $('explore-toggle').textContent=active?'↙ 結束探訪':'↗ 探訪小鎮';
+    $('explore-status').hidden=!active;
+    $('visitor-location').textContent=`${moving?'前往':'你在'} · ${locationName || '小鎮步道'}`;
+    $('visitor-hint').textContent=message || '點地面行走 · WASD／方向鍵 · E 查看家具';
+    $('scene-hint').textContent=active?'點地面走過去 · 點家具查看 · 拖曳移動視角':'點居民看日常 · 點家具看用途 · 拖曳移動視角';
+  },
+  onInspectObject: object => {inspectedObject=object;renderObject();},
   onCameraChange: ({zoom,following,worldView}) => {
     cameraFollowing = following;
     $('zoom-level').textContent = `${Math.round(zoom*100)}%`;
@@ -39,11 +50,12 @@ const scene = createTownScene($('town-stage'), {
     $('camera-follow').setAttribute('aria-pressed', String(following));
     $('camera-follow').textContent = following ? '◎ 正在跟隨' : '◎ 跟隨居民';
   },
-  onReady: ({renderer,version}) => {
+  onReady: ({renderer,version,minimapUrl}) => {
     $('scene-status').hidden = true;
     $('town-stage').dataset.renderer = renderer;
     $('town-stage').dataset.phaserVersion = version;
-    for(const id of ['zoom-in','camera-reset','camera-follow','town-minimap']) $(id).disabled = false;
+    $('minimap-image').src=minimapUrl || createMinimapDataUrl();
+    for(const id of ['zoom-in','camera-reset','camera-follow','town-minimap','explore-toggle']) $(id).disabled = false;
     document.querySelectorAll('[data-zone]').forEach(button=>button.disabled=false);
   },
   onError: error => {
@@ -51,13 +63,22 @@ const scene = createTownScene($('town-stage'), {
     $('scene-status').hidden = false;
     $('scene-status').classList.add('failed');
     $('scene-status').textContent = '小鎮畫面未能載入，請重新整理頁面。居民資料與生活紀錄仍可從下方查看。';
-    for(const id of ['zoom-in','zoom-out','camera-reset','camera-follow','town-minimap']) $(id).disabled = true;
+    for(const id of ['zoom-in','zoom-out','camera-reset','camera-follow','town-minimap','explore-toggle']) $(id).disabled = true;
     document.querySelectorAll('[data-zone]').forEach(button=>button.disabled=true);
   },
 });
 
 function portrait(agent) {
   return `<img src="${residentPortrait(agent)}" alt="" draggable="false">`;
+}
+function renderObject() {
+  $('object-card').hidden=!inspectedObject;
+  if(!inspectedObject)return;
+  $('object-name').textContent=inspectedObject.name;
+  $('object-description').textContent=inspectedObject.description;
+  $('object-zone').textContent=ZONES[inspectedObject.zone]?.name || '小鎮公共空間';
+  const nearby=frame().agents.filter(agent=>activityAnchor(agent,frame()).objectId===inspectedObject.id);
+  $('object-occupants').textContent=nearby.length?`此刻在這裡：${nearby.map(a=>a.name).join('、')}`:'此刻沒有居民使用這個位置。';
 }
 function toast(message) { $('toast').textContent = message; $('toast').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => {$('toast').hidden = true;}, 5800); }
 function controls() {
@@ -152,7 +173,7 @@ function render({animate=false} = {}) {
   $('seek').max=state.tick; $('seek').value=viewed;
   $('view-mode').textContent = busy ? '正在處理' : viewed<state.tick ? '歷史回放' : state.tick===120 ? '十日完成' : state.tick ? '最新進度' : '尚未開始';
   $('latest').hidden = viewed===state.tick;
-  renderResidents(current); renderAgent(current); renderEvents(); renderNetwork(current);
+  renderResidents(current); renderAgent(current); renderEvents(); renderNetwork(current); renderObject();
   $('progress-value').textContent = `${current.tick} / 120`;
   $('interaction-value').textContent = m.interactionDays;
   $('y-value').textContent = m.final ? percent(m.y) : '—';
@@ -220,6 +241,8 @@ $('zoom-in').addEventListener('click',()=>scene.zoomIn());
 $('zoom-out').addEventListener('click',()=>scene.zoomOut());
 $('camera-reset').addEventListener('click',()=>scene.resetCamera());
 $('camera-follow').addEventListener('click',()=>scene.setFollow(!cameraFollowing));
+$('explore-toggle').addEventListener('click',()=>scene.setExplore(!exploring));
+$('object-close').addEventListener('click',()=>{inspectedObject=null;renderObject();document.querySelector('#town-stage canvas')?.focus();});
 for(const button of document.querySelectorAll('[data-zone]')) button.addEventListener('click',()=>scene.focusZone(button.dataset.zone));
 $('town-minimap').addEventListener('click',event=>{
   if(!event.detail){scene.resetCamera();return;}

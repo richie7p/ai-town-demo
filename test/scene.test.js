@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createWorld, step } from '../src/engine.js';
 import { propose } from '../src/policy.js';
 import { viewFrame } from '../src/presentation.js';
+import { isWalkable, TILE_SIZE } from '../src/town-map.js';
 import {
   WORLD_SIZE, ZONE_CENTERS, characterPosition, presentationPath, samplePath,
   directionBetween, characterPresentation, visibleUtterances,
@@ -21,6 +22,23 @@ function assertPoint(point) {
   assert.ok(point[0] >= 0 && point[0] <= WORLD_SIZE.width);
   assert.ok(point[1] >= 0 && point[1] <= WORLD_SIZE.height);
 }
+function assertWalkPath(path) {
+  assert.ok(path.length, 'a reachable presentation route must not be empty');
+  for (let i = 0; i < path.length; i++) {
+    const point = path[i];
+    assertPoint(point);
+    assert.ok(isWalkable(...point), `route waypoint is blocked: ${point}`);
+    if (!i) continue;
+    const previous = path[i - 1];
+    const distance = Math.hypot(point[0] - previous[0], point[1] - previous[1]);
+    const samples = Math.max(1, Math.ceil(distance / (TILE_SIZE / 4)));
+    for (let n = 1; n < samples; n++) {
+      const t = n / samples;
+      const sample = [previous[0] + (point[0] - previous[0]) * t, previous[1] + (point[1] - previous[1]) * t];
+      assert.ok(isWalkable(...sample), `route crossed a wall or furniture: ${sample}`);
+    }
+  }
+}
 
 // Phaser renders these values in the browser. Testing real engine frames here
 // keeps the display/research boundary verifiable without a mock game engine.
@@ -31,13 +49,14 @@ test('the full 10-day run has finite display geometry and presentation never cha
     for (const agent of frame.agents) {
       const position = characterPosition(agent, frame);
       assertPoint(position);
+      assert.ok(isWalkable(...position), `resident ${agent.id} has a blocked anchor at tick ${tick}`);
       const display = characterPresentation(frame, agent.id);
       assert.ok(['idle', 'talk', 'rest', 'work', 'camera'].includes(display.pose));
       if (previous) {
         const oldAgent = previous.agents.find(a => a.id === agent.id);
         const from = characterPosition(oldAgent, previous);
         const path = presentationPath(from, position, oldAgent.zone, agent.zone);
-        path.forEach(assertPoint);
+        assertWalkPath(path);
         assert.deepEqual(samplePath(path, 0), from);
         assert.deepEqual(samplePath(path, 1), position);
         for (const progress of [0.1, 0.5, 0.9]) assertPoint(samplePath(path, progress));
@@ -48,6 +67,7 @@ test('the full 10-day run has finite display geometry and presentation never cha
       assert.equal(event.tick, tick);
       assert.equal(event.success, true);
     }
+    assert.equal(new Set(frame.agents.map(agent => characterPosition(agent, frame).join(','))).size, frame.agents.length, `residents overlap at tick ${tick}`);
     assert.equal(JSON.stringify(frame), before, `display helpers changed tick ${tick}`);
     previous = frame;
     if (tick < 120) state = step(state, propose(state));
@@ -80,23 +100,20 @@ test('only delivered utterances become bubbles or talking poses, including when 
   assert.deepEqual(visibleUtterances(past, 'A01').map(e => e.text), [actual]);
 });
 
-test('residents on the garden ring reach other districts without crossing the fountain water', () => {
-  const plaza = viewFrame(inZone('plaza'));
-  for (const zone of ['home', 'workshop', 'studio']) {
-    const destinationFrame = viewFrame(inZone(zone));
-    for (const agent of plaza.agents) {
-      const from = characterPosition(agent, plaza);
-      const destination = destinationFrame.agents.find(a => a.id === agent.id);
-      const to = characterPosition(destination, destinationFrame);
-      for (const path of [presentationPath(from, to, 'plaza', zone), presentationPath(to, from, zone, 'plaza')]) {
-        const before = JSON.stringify(path);
-        for (let i = 0; i <= 100; i++) {
-          const [x, y] = samplePath(path, i / 100);
-          assert.ok(!(x > 625 && x < 815 && y > 1028 && y < 1100), 'display path entered the fountain');
-          assertPoint([x, y]);
-        }
-        assert.equal(JSON.stringify(path), before);
-      }
+test('all eight residents can enter and leave every district without crossing walls or furniture', () => {
+  const zones = ['home', 'workshop', 'plaza', 'studio'];
+  const frames = Object.fromEntries(zones.map(zone => [zone, viewFrame(inZone(zone))]));
+  for (const origin of zones) for (const destination of zones) {
+    const fromFrame = frames[origin], toFrame = frames[destination];
+    for (const [index, agent] of fromFrame.agents.entries()) {
+      const from = characterPosition(agent, fromFrame);
+      const to = characterPosition(toFrame.agents[index], toFrame);
+      const path = presentationPath(from, to, origin, destination);
+      const before = JSON.stringify(path);
+      assertWalkPath(path);
+      assert.deepEqual(samplePath(path, 0), from);
+      assert.deepEqual(samplePath(path, 1), to);
+      assert.equal(JSON.stringify(path), before);
     }
   }
 });

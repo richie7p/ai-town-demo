@@ -1,5 +1,5 @@
 // Original 64 × 96 pixel artwork. This module only creates presentation assets.
-// Four-direction idle / walk, working, reading, conversation and photography.
+// Four-direction idle / walk, furniture-facing work, seated reading and conversation.
 // Identity follows the persona, never the shuffled simulation actor ID.
 export const RESIDENT_FRAME = Object.freeze({ width:64, height:96 });
 
@@ -30,9 +30,17 @@ function palette(agent){
   const main=/^#[a-f0-9]{6}$/i.test(agent.color)?agent.color:'#367760';
   return {...person,main,light:shade(main,26),deep:shade(main,-35),skinLight:shade(person.skin,18),skinShadow:shade(person.skin,-25),hairLight:shade(person.hair,28)};
 }
-function identity(agent){const p=palette(agent);return `resident-detail-v1-${p.id}-${p.main.slice(1).toLowerCase()}`;}
+function identity(agent){const p=palette(agent);return `resident-detail-v2-${p.id}-${p.main.slice(1).toLowerCase()}`;}
 
 function poseFor(frame){
+  if(frame>=46)return {direction:'up',motion:'talk',phase:frame-46};
+  if(frame>=44)return {direction:'right',motion:'talk',phase:frame-44};
+  if(frame>=42)return {direction:'left',motion:'talk',phase:frame-42};
+  if(frame>=40)return {direction:'up',motion:'camera',phase:frame-40};
+  if(frame>=38)return {direction:'right',motion:'rest',phase:frame-38};
+  if(frame>=36)return {direction:'left',motion:'rest',phase:frame-36};
+  if(frame>=34)return {direction:'up',motion:'rest',phase:frame-34};
+  if(frame>=30)return {direction:'up',motion:'work',phase:frame-30};
   if(frame<4)return {direction:['down','left','right','up'][frame],motion:'idle',phase:0};
   if(frame<20)return {direction:['down','left','right','up'][Math.floor((frame-4)/4)],motion:'walk',phase:(frame-4)%4};
   if(frame<24)return {direction:'down',motion:'work',phase:frame-20};
@@ -49,6 +57,11 @@ function shoe(c,x,y,p,side=false){
 function legs(c,p,pose,side,back){
   const stride=pose.motion==='walk'?[0,5,0,-5][pose.phase]:0;
   if(pose.motion==='rest'){
+    if(side){
+      shape(c,[[25,62],[39,63],[39,73],[19,75],[18,85],[10,85],[10,70],[27,68]],p.pants,DARK);
+      line(c,[[29,66],[31,71],[16,71],[15,81]],shade(p.pants,24));
+      shoe(c,8,82,p,true);shoe(c,20,81,p,true);return;
+    }
     shape(c,[[21,64],[43,64],[45,72],[38,76],[25,76],[18,72]],p.pants,DARK);
     shape(c,[[19,71],[28,72],[26,82],[17,83],[17,78]],shade(p.pants,9),DARK);
     shape(c,[[36,72],[44,71],[47,82],[38,83]],shade(p.pants,-9),DARK);
@@ -147,7 +160,31 @@ function hand(c,x,y,p,open=false){
 }
 function arms(c,p,pose,side,back){
   const stride=pose.motion==='walk'?[0,4,0,-4][pose.phase]:0;
+  if(back&&['work','camera','rest','talk'].includes(pose.motion)){
+    const lift=pose.motion==='work'?[0,-3,-5,-2][pose.phase]:pose.phase?-2:0;
+    for(const [x,main] of [[16,p.main],[43,p.deep]]){
+      shape(c,[[x+2,41],[x+7,43],[x+6,54],[x+1,56],[x-2,50+lift],[x,46+lift]],main,shade(p.deep,-12));
+      rect(c,x,48+lift,4,3,p.accent);hand(c,x-1,43+lift,p);
+    }
+    if(pose.motion==='work'){
+      rect(c,14,34+lift,3,15,'#b08a54');rect(c,10,32+lift,12,5,'#6e8386');rect(c,11,32+lift,9,2,'#bcc9c1');
+    }else if(pose.motion==='camera'){
+      rect(c,14,30+lift,12,10,'#334752');rect(c,16,28+lift,6,3,'#667f86');rect(c,15,32+lift,5,5,'#a8c2bd');
+      line(c,[[20,39],[18,52],[23,57]],'#8d7e67');
+    }
+    return;
+  }
   if(side){
+    if(pose.motion==='rest'||pose.motion==='talk'){
+      const lift=pose.phase?-2:0;
+      shape(c,[[29,41],[35,43],[34,53],[21,58+lift],[17,54+lift],[27,49]],p.main,shade(p.deep,-12));
+      hand(c,15,51+lift,p,pose.motion==='talk');
+      if(pose.motion==='rest'){
+        shape(c,[[9,52],[19,54],[25,51],[25,65],[18,68],[8,64]],'#c8aa72','#746646');
+        line(c,[[17,55],[17,65]],'#f0e1b9');rect(c,10,55,5,7,'#ebe0be');rect(c,20,55,3,7,'#ded2ad');
+      }
+      return;
+    }
     const dx=stride;
     shape(c,[[30,41],[36,42],[36+dx,55],[33+dx,63],[28+dx,61],[29+dx,54]],p.deep,shade(p.deep,-12));
     rect(c,30+dx,54,5,3,p.accent);hand(c,28+dx,59,p);return;
@@ -239,7 +276,7 @@ function head(c,p,pose,side,back){
     rect(c,36,42,6,13,'#d7b980');rect(c,37,43,2,10,'#ecd29c');rect(c,37,54,1,3,'#9b7750');rect(c,40,54,1,3,'#9b7750');
   }
   if(pose.motion==='talk'&&pose.phase&&!side&&!back){rect(c,29,33,7,3,'#8e5549');rect(c,30,33,5,1,'#efcfb3');}
-  if(pose.motion==='rest'&&pose.phase){rect(c,24,25,5,3,p.skin);rect(c,36,25,5,3,p.skin);rect(c,24,26,5,1,p.hair);rect(c,36,26,5,1,p.hair);}
+  if(pose.motion==='rest'&&pose.phase&&!side&&!back){rect(c,24,25,5,3,p.skin);rect(c,36,25,5,3,p.skin);rect(c,24,26,5,1,p.hair);rect(c,36,26,5,1,p.hair);}
 }
 
 function hairStyle(c,p,side,back){
@@ -300,12 +337,12 @@ export function registerResidentAssets(scene,agents){
   for(const agent of agents){
     const key=identity(agent);
     if(!scene.textures.exists(key)){
-      const sheet=canvas(640,288),c=sheet.getContext('2d');
-      for(let frame=0;frame<30;frame++){
+      const sheet=canvas(640,480),c=sheet.getContext('2d');
+      for(let frame=0;frame<48;frame++){
         c.save();c.translate((frame%10)*64,Math.floor(frame/10)*96);c.beginPath();c.rect(0,0,64,96);c.clip();
         drawResident(c,agent,frame);c.restore();
       }
-      scene.textures.addSpriteSheet(key,sheet,{frameWidth:64,frameHeight:96,endFrame:29});
+      scene.textures.addSpriteSheet(key,sheet,{frameWidth:64,frameHeight:96,endFrame:47});
     }
     characterKeys[agent.id]=key;
   }

@@ -1,23 +1,8 @@
 // Presentation geometry only. These positions never determine interaction
 // eligibility, movement duration, equipment use, or any V5 research outcome.
-export const WORLD_SIZE = Object.freeze({ width: 2400, height: 1600 });
-export const ZONE_CENTERS = Object.freeze({
-  home: Object.freeze([610,420]),
-  workshop: Object.freeze([1800,430]),
-  plaza: Object.freeze([600,1190]),
-  studio: Object.freeze([1800,1190]),
-});
-const slots = {
-  home: [[210,545],[330,560],[450,548],[570,563],[690,545],[810,560],[930,548],[1050,560]],
-  workshop: [[1350,550],[1460,563],[1570,545],[1680,560],[1790,548],[1900,563],[2010,546],[2120,560]],
-  plaza: [[448,1053],[712,906],[977,1053],[712,1194],[250,1288],[455,1300],[935,1286],[1060,1300]],
-  studio: [[1340,1288],[1450,1301],[1560,1286],[1670,1300],[1780,1288],[1890,1301],[2000,1286],[2110,1300]],
-};
-// Pixel positions follow the visible streets in the illustrated town map. The square's
-// ring uses the outer stone walk, then its southern stairs; no path crosses water.
-const streetY = { home:550, workshop:550, plaza:1290, studio:1290 };
-const crossing = [1200,744];
-const fountainRing = [[712,906],[873,942],[977,1053],[903,1150],[712,1194],[533,1152],[448,1053],[525,953]];
+import { WORLD_SIZE, ZONE_CENTERS, activityAnchor, findWalkPath } from './town-map.js';
+export { WORLD_SIZE, ZONE_CENTERS } from './town-map.js';
+const crossing = [1040,784];
 const utteranceKinds = new Set(['talk','reply','invite','accept','decline']);
 const failureKinds = new Set(['invalid','capacity_failure','join_failed']);
 const clamp = (n,a,b) => Math.max(a,Math.min(b,n));
@@ -27,30 +12,10 @@ export function isContinuousFrame(previous,next) {
   return !!previous && next.tick === previous.tick+1 && next.config.seed===previous.config.seed && next.config.capacity===previous.config.capacity;
 }
 export function characterPosition(agent,frame) {
-  const index=Math.max(0,frame.agents.findIndex(a=>a.id===agent.id));
-  const base=slots[agent.zone]?.[index%8] ?? crossing;
-  const proposal=frame.trace?.proposals.find(p=>p.actor===agent.id);
-  const walking=proposal?.action==='walk' && frame.events.some(e=>e.tick===frame.tick && e.proposalId===proposal.id && e.success===true);
-  return [base[0]+(walking ? (frame.tick%2 ? 18 : -18) : 0),base[1]+(walking ? (index%2 ? 7 : -7) : 0)];
+  return activityAnchor(agent,frame).point;
 }
-export function presentationPath(from,to,oldZone,newZone) {
-  if(oldZone===newZone)return [from.slice(),to.slice()];
-  const exit=(point,zone)=>{
-    const lane=streetY[zone];
-    if(lane===undefined)return [point,crossing];
-    if(zone==='plaza'&&point[1]<1230){
-      const nearest=fountainRing.map((p,index)=>({index,distance:Math.hypot(point[0]-p[0],point[1]-p[1])})).sort((a,b)=>a.distance-b.distance)[0].index;
-      const ringWalk=[];
-      // The shorter perimeter route leads to the southern staircase (node 4).
-      const direction=nearest<=4?1:-1;
-      for(let index=nearest;;index+=direction){ringWalk.push(fountainRing[index]);if(index===4)break;}
-      return [point,...ringWalk,[712,lane],[1200,lane]];
-    }
-    return [point,[point[0],lane],[1200,lane]];
-  };
-  const crossesMainStreet=streetY[oldZone]!==streetY[newZone];
-  return [...exit(from,oldZone),...(crossesMainStreet?[crossing]:[]),...exit(to,newZone).reverse()]
-    .filter((point,index,all)=>index===0||point[0]!==all[index-1][0]||point[1]!==all[index-1][1]).map(point=>point.slice());
+export function presentationPath(from,to,_oldZone,_newZone) {
+  return findWalkPath(from,to);
 }
 export function samplePath(path,progress) {
   if(!path.length)return crossing.slice();

@@ -1,303 +1,274 @@
 import { ACTION_NAMES } from './config.js';
 import * as townAssets from './town-assets.js';
 import { WORLD_SIZE, ZONE_CENTERS, clampZoom, isContinuousFrame, characterPosition, presentationPath, samplePath, directionBetween, characterPresentation, visibleUtterances } from './town-view-model.js';
+import { TILE_SIZE, MAP_OBJECTS, isWalkable, findWalkPath, activityAnchor, nearestWalkable, locationAt, createMinimapDataUrl } from './town-map.js';
 
 const { width: W, height: H } = WORLD_SIZE;
-const VIEW_WIDTH=1200, VIEW_HEIGHT=800, FIT_ZOOM=Math.min(VIEW_WIDTH/W,VIEW_HEIGHT/H);
-const FONT = '"Microsoft JhengHei", "Noto Sans TC", sans-serif';
-const idleFrames = { down:0, left:1, right:2, up:3 };
-const characterClips = {down:[4,7],left:[8,11],right:[12,15],up:[16,19],work:[20,23],rest:[24,25],talk:[26,27],camera:[28,29]};
-const appearanceIdentity = (agent,index) => JSON.stringify([agent.id,agent.name,agent.color,index]);
-const clip = (n,a,b) => Math.max(a,Math.min(b,n));
-const wrap = (text, columns=17) => Array.from(String(text)).reduce((lines,c,i) => { if(i%columns===0)lines.push('');lines[lines.length-1]+=c;return lines;},[]).join('\n');
+const VIEW_WIDTH=1200;
+const FONT='"Microsoft JhengHei", "Noto Sans TC", sans-serif';
+const idleFrames={down:0,left:1,right:2,up:3};
+const characterClips={down:[4,7],left:[8,11],right:[12,15],up:[16,19],work:[20,23],rest:[24,25],talk:[26,27],camera:[28,29],'work-up':[30,33],'rest-up':[34,35],'rest-left':[36,37],'rest-right':[38,39],'camera-up':[40,41],'talk-left':[42,43],'talk-right':[44,45],'talk-up':[46,47]};
+const appearanceIdentity=(agent,index)=>JSON.stringify([agent.id,agent.name,agent.color,index]);
+const clip=(n,a,b)=>Math.max(a,Math.min(b,n));
+const pathLength=path=>path.slice(1).reduce((sum,p,i)=>sum+Math.hypot(p[0]-path[i][0],p[1]-path[i][1]),0);
+const wrap=(text,columns=16)=>Array.from(String(text)).reduce((lines,c,i)=>{if(i%columns===0)lines.push('');lines[lines.length-1]+=c;return lines;},[]).join('\n');
+const WALK_KEYS=new Set(['w','a','s','d','arrowup','arrowleft','arrowdown','arrowright']);
 
-// This scene consumes completed V5 world frames. It never chooses an action,
-// changes a world frame, or feeds display coordinates back to the simulation.
-export function createTownScene(host, { onSelect=()=>{}, onCameraChange=()=>{}, onReady=()=>{}, onError=()=>{} } = {}) {
-  const Phaser = globalThis.Phaser;
-  let game, scene, pending=null, destroyed=false, observer;
-  let zoom=1, following=false, dpr=clip(globalThis.devicePixelRatio||1,1,2);
-  let lastCameraSignature='';
-  const notifyCamera = (force=false) => {
+// Residents consume completed V5 frames. The visitor is a separate presentation
+// actor; neither its movement nor object inspection changes a research record.
+export function createTownScene(host,{onSelect=()=>{},onCameraChange=()=>{},onExploreChange=()=>{},onInspectObject=()=>{},onReady=()=>{},onError=()=>{}}={}){
+  const Phaser=globalThis.Phaser;
+  let game,scene,pending=null,destroyed=false,resizeObserver;
+  const measureViewHeight=()=>host?.clientWidth>0&&host?.clientHeight>0?Math.round(clip(VIEW_WIDTH*host.clientHeight/host.clientWidth,400,2400)):800;
+  let viewHeight=measureViewHeight(),fitZoom=Math.min(VIEW_WIDTH/W,viewHeight/H);
+  let zoom=1.65,following=false,exploring=false,explorerFollowing=false,dpr=clip(globalThis.devicePixelRatio||1,1,2);
+  let lastCameraSignature='',lastExploreSignature='';
+  const notifyCamera=(force=false)=>{
     const view=scene?.cameras.main.worldView;
-    const worldView=view?.width>0 ? {x:Math.max(0,view.x),y:Math.max(0,view.y),width:Math.min(W,view.width),height:Math.min(H,view.height)} : {x:0,y:0,width:W,height:H};
+    const worldView=view?.width>0?{x:Math.max(0,view.x),y:Math.max(0,view.y),width:Math.min(W,view.width),height:Math.min(H,view.height)}:{x:0,y:0,width:W,height:H};
     const signature=[zoom,following,...Object.values(worldView).map(n=>Math.round(n*10))].join('|');
     if(force||signature!==lastCameraSignature){lastCameraSignature=signature;onCameraChange({zoom,following,worldView});}
   };
-  const reportError = error => { if(!destroyed)onError(error instanceof Error ? error : new Error(String(error))); };
-  const api = {
-    render(frame, options={}) {
+  const notifyExplore=(message='',force=false)=>{
+    const visitor=scene?.visitor;
+    const location=visitor?locationAt(visitor.container.x,visitor.container.y):{zone:null,name:'花園步道'};
+    const moving=!!visitor?.moving;
+    if(game?.canvas){
+      game.canvas.dataset.exploring=String(exploring);
+      game.canvas.dataset.visitorX=visitor?visitor.container.x.toFixed(1):'';
+      game.canvas.dataset.visitorY=visitor?visitor.container.y.toFixed(1):'';
+      game.canvas.dataset.visitorLocation=location?.name||'花園步道';
+      game.canvas.dataset.visitorMoving=String(moving);
+    }
+    const signature=[exploring,moving,location?.name,location?.room,message].join('|');
+    if(force||signature!==lastExploreSignature){lastExploreSignature=signature;onExploreChange({active:exploring,moving,location,locationName:location?.name||'花園步道',message});}
+  };
+  const reportError=error=>{if(!destroyed)onError(error instanceof Error?error:new Error(String(error)));};
+  const api={
+    render(frame,options={}){
       if(destroyed)return;
       pending={frame,options:{selected:null,playing:false,duration:800,reducedMotion:false,animate:true,...options}};
-      if(scene?.ready)try { scene.applyFrame(pending); } catch(error) { reportError(error); }
+      if(scene?.ready)try{scene.applyFrame(pending);}catch(error){reportError(error);}
     },
-    zoomIn() { zoom=clampZoom(zoom+.25);scene?.applyCamera();notifyCamera(); },
-    zoomOut() { zoom=clampZoom(zoom-.25);scene?.applyCamera();notifyCamera(); },
-    resetCamera() { zoom=1;following=false;scene?.applyCamera(true);notifyCamera(); },
-    setFollow(value) { following=!!value;if(following)zoom=Math.max(2.2,zoom);scene?.applyCamera();notifyCamera(); },
-    focusZone(zone) {
+    zoomIn(){zoom=clampZoom(zoom+.25);scene?.applyCamera();notifyCamera();},
+    zoomOut(){zoom=clampZoom(zoom-.25);scene?.applyCamera();notifyCamera();},
+    resetCamera(){zoom=1;following=false;explorerFollowing=false;scene?.applyCamera(true);notifyCamera();},
+    setFollow(value){following=!!value;explorerFollowing=false;if(following)zoom=Math.max(2.2,zoom);scene?.applyCamera();notifyCamera();},
+    setExplore(value){exploring=!!value;following=false;explorerFollowing=exploring;if(exploring)zoom=Math.max(2.2,zoom);scene?.toggleExplore();scene?.applyCamera();notifyExplore('',true);notifyCamera();},
+    focusZone(zone){
       const point=ZONE_CENTERS[zone];if(!point)return;
-      following=false;zoom=Math.max(2.2,zoom);scene?.applyCamera();
-      scene?.cameras.main.stopFollow().centerOn(point[0],point[1]);notifyCamera(true);
+      following=false;explorerFollowing=false;zoom=Math.max(2.2,zoom);scene?.applyCamera();scene?.cameras.main.stopFollow().centerOn(point[0],point[1]);notifyCamera(true);
     },
-    panTo(x,y) {
-      if(!Number.isFinite(x)||!Number.isFinite(y))return;
-      following=false;scene?.applyCamera();scene?.cameras.main.stopFollow().centerOn(clip(x,0,W),clip(y,0,H));notifyCamera(true);
-    },
-    destroy() { if(destroyed)return;destroyed=true;observer?.disconnect();globalThis.removeEventListener('resize',resize);game?.destroy(true);scene=null;pending=null; },
+    panTo(x,y){if(!Number.isFinite(x)||!Number.isFinite(y))return;following=false;explorerFollowing=false;scene?.applyCamera();scene?.cameras.main.stopFollow().centerOn(clip(x,0,W),clip(y,0,H));notifyCamera(true);},
+    destroy(){if(destroyed)return;destroyed=true;resizeObserver?.disconnect();globalThis.removeEventListener('resize',resize);game?.destroy(true);scene=null;pending=null;},
   };
-  function resize() {
+  function resize(){
     if(destroyed||!game?.scale)return;
-    const nextDpr=clip(globalThis.devicePixelRatio||1,1,2);
-    if(nextDpr!==dpr){
+    const nextDpr=clip(globalThis.devicePixelRatio||1,1,2),nextHeight=measureViewHeight();
+    if(nextDpr!==dpr||nextHeight!==viewHeight){
       const camera=scene?.cameras.main,center=camera?.getWorldPoint(camera.width/2,camera.height/2);
-      dpr=nextDpr;game.scale.resize(VIEW_WIDTH*dpr,VIEW_HEIGHT*dpr);scene?.applyCamera();
-      if(center)camera.centerOn(center.x,center.y);
+      dpr=nextDpr;viewHeight=nextHeight;fitZoom=Math.min(VIEW_WIDTH/W,viewHeight/H);
+      // FIT needs setGameSize to update its retained display aspect ratio.
+      // resize is intended for NONE and keeps the old FIT ratio on live resize.
+      game.scale.setGameSize(VIEW_WIDTH*dpr,viewHeight*dpr);
+      scene?.applyCamera();if(center)camera.centerOn(center.x,center.y);
     }
     game.scale.refresh();notifyCamera(true);
   }
-  if(!Phaser?.Game || !host){reportError(new Error('Phaser 場景無法啟動，請重新整理頁面。'));return api;}
+  if(!Phaser?.Game||!host){reportError(new Error('Phaser 場景無法啟動，請重新整理頁面。'));return api;}
 
-  class TownScene extends Phaser.Scene {
-    constructor(){super('v5-town');this.ready=false;this.built=false;this.characters=new Map();this.bubbles=[];this.ambientTweens=[];this.ambientLights=[];this.frame=null;this.options={};this.drag=null;}
+  class TownScene extends Phaser.Scene{
+    constructor(){super('v5-town');this.ready=false;this.built=false;this.characters=new Map();this.bubbles=[];this.ambientTweens=[];this.ambientLights=[];this.frame=null;this.options={};this.drag=null;this.keys=new Set();this.visitor=null;this.objectHighlight=null;}
     preload(){
-      this.load.once('loaderror',file=>{
-        this.assetError=new Error(`小鎮美術載入失敗：${file?.key||'場景素材'}`);
-        reportError(this.assetError);
-      });
-      townAssets.preloadTownAssets?.(this);
+      this.load.once('loaderror',file=>{this.assetError=new Error(`小鎮美術載入失敗：${file?.key||'場景素材'}`);reportError(this.assetError);});townAssets.preloadTownAssets?.(this);
     }
     create(){
-      try {
-        if(this.assetError)return;
-        scene=this;this.ready=true;
-        this.cameras.main.setBounds(0,0,W,H).setRoundPixels(true);
-        this.applyCamera(true);
-        this.input.on('pointerdown',p=>{this.drag={x:p.x,y:p.y,scrollX:this.cameras.main.scrollX,scrollY:this.cameras.main.scrollY,moved:false};});
+      try{
+        if(this.assetError)return;scene=this;this.ready=true;this.cameras.main.setBounds(0,0,W,H).setRoundPixels(true);this.applyCamera(true);
+        const canvas=this.game.canvas;canvas.tabIndex=0;canvas.setAttribute('role','application');canvas.setAttribute('aria-label','AI 小鎮。點居民可觀察，拖曳可看地圖。進入散步模式後，點地面或按方向鍵移動，按 E 查看附近家具。');canvas.style.cursor='grab';canvas.style.touchAction='none';
+        this.input.on('pointerdown',p=>{canvas.focus({preventScroll:true});this.drag={x:p.x,y:p.y,scrollX:this.cameras.main.scrollX,scrollY:this.cameras.main.scrollY,moved:false};});
         this.input.on('pointermove',p=>{
-          if(!this.drag||!p.isDown)return;
-          const dx=p.x-this.drag.x,dy=p.y-this.drag.y;
-          if(Math.hypot(dx,dy)>6*dpr)this.drag.moved=true;
-          if(this.drag.moved){
-            if(following){following=false;this.cameras.main.stopFollow();notifyCamera();}
-            this.cameras.main.setScroll(this.drag.scrollX-dx/(zoom*dpr*FIT_ZOOM),this.drag.scrollY-dy/(zoom*dpr*FIT_ZOOM));
-            notifyCamera();
-            if(game?.canvas)game.canvas.style.cursor='grabbing';
-          }
+          if(!this.drag||!p.isDown){this.hoverObject(p);return;}
+          const dx=p.x-this.drag.x,dy=p.y-this.drag.y;if(Math.hypot(dx,dy)>6*dpr)this.drag.moved=true;
+          if(this.drag.moved){if(following||explorerFollowing){following=false;explorerFollowing=false;this.cameras.main.stopFollow();notifyCamera();}this.cameras.main.setScroll(this.drag.scrollX-dx/(zoom*dpr*fitZoom),this.drag.scrollY-dy/(zoom*dpr*fitZoom));notifyCamera();canvas.style.cursor='grabbing';}
         });
-        this.input.on('pointerup',p=>this.finishPointer(p));
-        this.input.on('pointerupoutside',()=>{this.drag=null;if(game?.canvas)game.canvas.style.cursor='grab';});
-        this.events.once('shutdown',()=>{this.ready=false;this.input.removeAllListeners();this.bubbles=[];this.characters.clear();});
+        this.input.on('pointerup',p=>this.finishPointer(p));this.input.on('pointerupoutside',()=>{this.drag=null;canvas.style.cursor=exploring?'crosshair':'grab';});
+        this.handleKeyDown=event=>{
+          if(!exploring||document.activeElement!==canvas||document.querySelector('dialog[open]')||event.ctrlKey||event.metaKey||event.altKey)return;
+          const key=event.key.toLowerCase();if(WALK_KEYS.has(key)){event.preventDefault();this.keys.add(key);}if(key==='e'&&!event.repeat){event.preventDefault();this.inspectNearestObject();}
+        };
+        this.handleKeyUp=event=>this.keys.delete(event.key.toLowerCase());this.clearKeys=()=>this.keys.clear();
+        document.addEventListener('keydown',this.handleKeyDown);document.addEventListener('keyup',this.handleKeyUp);globalThis.addEventListener('blur',this.clearKeys);canvas.addEventListener('blur',this.clearKeys);
+        this.events.once('shutdown',()=>{this.ready=false;this.input.removeAllListeners();this.bubbles=[];this.characters.clear();this.keys.clear();document.removeEventListener('keydown',this.handleKeyDown);document.removeEventListener('keyup',this.handleKeyUp);globalThis.removeEventListener('blur',this.clearKeys);canvas.removeEventListener('blur',this.clearKeys);});
         if(pending)this.applyFrame(pending);
-        const canvas=this.game.canvas;
-        canvas.setAttribute('role','img');canvas.setAttribute('aria-label','AI 小鎮：可點選居民觀察、拖曳平移，使用上方按鈕縮放。');
-        canvas.style.cursor='grab';canvas.style.touchAction='none';
-        onReady({renderer:this.game.renderer.type===Phaser.WEBGL?'WebGL':'Canvas',version:Phaser.VERSION});notifyCamera();
-      } catch(error){reportError(error);}
+        onReady({renderer:this.game.renderer.type===Phaser.WEBGL?'WebGL':'Canvas',version:Phaser.VERSION,minimapUrl:createMinimapDataUrl()});notifyCamera();notifyExplore('',true);
+      }catch(error){reportError(error);}
+    }
+    hitObject(point){return MAP_OBJECTS.filter(o=>point.x>=o.x&&point.x<=o.x+o.width&&point.y>=o.y-12&&point.y<=o.y+o.height).sort((a,b)=>b.y+b.height-a.y-a.height)[0]||null;}
+    hoverObject(pointer){
+      if(!this.built)return;const point=this.cameras.main.getWorldPoint(pointer.x,pointer.y),object=this.hitObject(point);
+      if(this.objectHighlight){this.objectHighlight.clear();if(object)this.objectHighlight.lineStyle(2,0xf5d483,.85).strokeRoundedRect(object.x-3,object.y-4,object.width+6,object.height+7,4);}
+      this.game.canvas.style.cursor=object?'pointer':exploring?'crosshair':'grab';
     }
     finishPointer(pointer){
-      const drag=this.drag;this.drag=null;if(this.game.canvas)this.game.canvas.style.cursor='grab';
-      if(!drag||drag.moved)return;
+      const drag=this.drag;this.drag=null;this.game.canvas.style.cursor=exploring?'crosshair':'grab';if(!drag||drag.moved)return;
       const point=this.cameras.main.getWorldPoint(pointer.x,pointer.y);
-      const hit=[...this.characters.values()].filter(c=>Math.abs(c.container.x-point.x)<42&&point.y<c.container.y+15&&point.y>c.container.y-108).sort((a,b)=>b.container.y-a.container.y)[0];
-      if(hit)onSelect(hit.id);
+      const hit=[...this.characters.values()].filter(c=>Math.abs(c.container.x-point.x)<23&&point.y<c.container.y+9&&point.y>c.container.y-58).sort((a,b)=>b.container.y-a.container.y)[0];
+      if(hit){onSelect(hit.id);return;}
+      const object=this.hitObject(point);
+      if(object){if(exploring&&object.approach)this.walkVisitor(object.approach,{object});else onInspectObject(object);return;}
+      if(exploring){if(!isWalkable(point.x,point.y)){notifyExplore('這裡有牆壁或家具，請點選地板、門口或步道。',true);return;}this.walkVisitor(nearestWalkable([point.x,point.y]));}
     }
     applyCamera(reset=false){
-      if(!this.ready)return;
-      const camera=this.cameras.main;
-      const center=camera.getWorldPoint(camera.width/2,camera.height/2);
-      camera.setZoom(FIT_ZOOM*zoom*dpr);
-      if(reset)camera.stopFollow().centerOn(W/2,H/2);
-      else camera.centerOn(Number.isFinite(center.x)?center.x:W/2,Number.isFinite(center.y)?center.y:H/2);
-      const actor=this.characters.get(this.options.selected);
-      if(following&&actor)camera.startFollow(actor.container,true,this.options.reducedMotion?1:.12,this.options.reducedMotion?1:.12);
-      else camera.stopFollow();
+      if(!this.ready)return;const camera=this.cameras.main,center=camera.getWorldPoint(camera.width/2,camera.height/2);camera.setZoom(fitZoom*zoom*dpr);
+      // At whole-town zoom the viewport may be wider or taller than the map.
+      // Symmetric padding preserves centering; zoomed views retain world bounds.
+      const padX=Math.max(0,(camera.width/camera.zoom-W)/2),padY=Math.max(0,(camera.height/camera.zoom-H)/2);
+      camera.setBounds(-padX,-padY,W+padX*2,H+padY*2);
+      if(reset)camera.stopFollow().centerOn(W/2,H/2);else camera.centerOn(Number.isFinite(center.x)?center.x:W/2,Number.isFinite(center.y)?center.y:H/2);
+      const target=exploring&&explorerFollowing?this.visitor?.container:following?this.characters.get(this.options.selected)?.container:null;
+      if(target)camera.startFollow(target,true,this.options.reducedMotion?1:.14,this.options.reducedMotion?1:.14);else camera.stopFollow();
+      for(const actor of this.characters.values())actor.action.setVisible(actor.id===this.options.selected||zoom>=2.2);
     }
-    text(x,y,content,size=13,color='#3e5144',extra={}){
-      return this.add.text(x,y,content,{fontFamily:FONT,fontSize:`${size}px`,color,resolution:2,...extra});
-    }
+    text(x,y,content,size=13,color='#3e5144',extra={}){return this.add.text(x,y,content,{fontFamily:FONT,fontSize:`${size}px`,color,resolution:2,...extra});}
     build(frame){
-      const assets=townAssets.registerTownAssets(this,frame.agents);this.assets=assets;
-      if(!this.textures.exists(assets.backgroundKey))throw new Error('小鎮背景尚未載入完成。');
-      this.add.image(0,0,assets.backgroundKey).setOrigin(0,0).setDisplaySize(W,H).setDepth(0);
-      for(const layer of assets.foreground)this.add.image(layer.x,layer.y,layer.key).setOrigin(0,0).setDepth(layer.depth);
-      const fountain=assets.ambient.fountain;
-      for(let i=0;i<3;i++){
-        const ripple=this.add.ellipse(fountain.x,fountain.y,(fountain.radius||48)+i*23,16+i*8).setStrokeStyle(1,0xf3fff9,.55).setDepth(fountain.y-2);
-        this.ambientTweens.push(this.tweens.add({targets:ripple,scaleX:1.16,scaleY:1.14,alpha:.18,duration:1300+i*270,yoyo:true,repeat:-1,paused:true,delay:i*200}));
-      }
-      for(const lamp of assets.ambient.lamps){
-        this.ambientLights.push(this.add.ellipse(lamp.x,lamp.y,100,100,0xffdf8e,1).setAlpha(0).setDepth(3005));
-        this.ambientLights.push(this.add.ellipse(lamp.x,lamp.y,34,34,0xffeab3,1).setAlpha(0).setDepth(3006));
-      }
-      this.phaseOverlay=this.add.rectangle(0,0,W,H,0x485677,1).setAlpha(0).setOrigin(0,0).setDepth(3000);
-      this.equipmentLabels={};
-      for(const [zone,fallback] of Object.entries({workshop:{x:1730,y:710},studio:{x:1710,y:1480}})){
-        const position=assets.equipmentLabels?.[zone]||fallback;
-        this.equipmentLabels[zone]=this.text(position.x,position.y,'',17,'#3d5541',{backgroundColor:'#fff8e9',padding:{x:11,y:7}}).setDepth(3300);
-      }
-      for(const [index,agent] of frame.agents.entries())this.addCharacter(agent,assets.characterKeys[agent.id],index);
-      this.built=true;
+      const assets=townAssets.registerTownAssets(this,frame.agents);this.assets=assets;if(!this.textures.exists(assets.backgroundKey))throw new Error('小鎮背景尚未載入完成。');
+      this.add.image(0,0,assets.backgroundKey).setOrigin(0,0).setDisplaySize(W,H).setDepth(0);for(const layer of assets.foreground)this.add.image(layer.x,layer.y,layer.key).setOrigin(0,0).setDepth(layer.depth);
+      const fountain=assets.ambient?.fountain;
+      if(fountain)for(let i=0;i<3;i++){const ripple=this.add.ellipse(fountain.x,fountain.y,(fountain.radius||34)+i*14,10+i*5).setStrokeStyle(1,0xf3fff9,.55).setDepth(fountain.y-2);this.ambientTweens.push(this.tweens.add({targets:ripple,scaleX:1.16,scaleY:1.14,alpha:.18,duration:1300+i*270,yoyo:true,repeat:-1,paused:true,delay:i*200}));}
+      for(const lamp of assets.ambient?.lamps||[]){this.ambientLights.push(this.add.ellipse(lamp.x,lamp.y,64,64,0xffdf8e,1).setAlpha(0).setDepth(3005));this.ambientLights.push(this.add.ellipse(lamp.x,lamp.y,22,22,0xffeab3,1).setAlpha(0).setDepth(3006));}
+      this.phaseOverlay=this.add.rectangle(0,0,W,H,0x485677,1).setAlpha(0).setOrigin(0,0).setDepth(3000);this.equipmentLabels={};
+      for(const [zone,position] of Object.entries(assets.equipmentLabels||{}))this.equipmentLabels[zone]=this.text(position.x,position.y,'',13,'#43575d',{backgroundColor:'#f9f6ea',padding:{x:7,y:5}}).setDepth(3300);
+      this.objectHighlight=this.add.graphics().setDepth(3500);for(const [index,agent] of frame.agents.entries())this.addCharacter(agent,assets.characterKeys[agent.id],index);
+      this.buildVisitor();this.built=true;this.toggleExplore();
     }
     registerCharacterAnimations(id,texture){
-      for(const [name,[start,end]] of Object.entries(characterClips)){
-        const key=`${id}-${name}`;
-        if(this.anims.exists(key))this.anims.remove(key);
-        this.anims.create({key,frames:this.anims.generateFrameNumbers(texture,{start,end}),frameRate:name==='rest'?2:7,repeat:-1});
-      }
+      for(const [name,[start,end]] of Object.entries(characterClips)){const key=`${id}-${name}`;if(this.anims.exists(key))this.anims.remove(key);this.anims.create({key,frames:this.anims.generateFrameNumbers(texture,{start,end}),frameRate:name.startsWith('rest')?2:7,repeat:-1});}
     }
     addCharacter(agent,texture,index){
-      this.registerCharacterAnimations(agent.id,texture);
-      const shadow=this.add.ellipse(0,-1,48,16,0x243b34,.25);
-      const ring=this.add.ellipse(0,-1,66,23).setStrokeStyle(3,0xffedb0).setVisible(false);
-      const sprite=this.add.sprite(0,0,texture,0).setOrigin(.5,1);
-      const name=this.text(0,10,agent.name,20,'#344c3c',{fontStyle:'bold',backgroundColor:'#fffaf0',padding:{x:8,y:3}}).setOrigin(.5,0);
-      const action=this.text(0,38,'',14,'#6e7768',{backgroundColor:'#fffaed',padding:{x:3,y:1}}).setOrigin(.5,0);
-      const equipment=this.text(32,-85,'',14,'#fffaf0',{backgroundColor:'#536b5a',padding:{x:5,y:3}}).setOrigin(0,1).setVisible(false);
-      const container=this.add.container(0,0,[shadow,ring,sprite,name,action,equipment]);
-      this.characters.set(agent.id,{id:agent.id,container,sprite,ring,name,action,equipment,appearance:appearanceIdentity(agent,index),direction:'down',zone:agent.zone,path:null,motion:null,moving:false,presentation:null,animationKey:null});
+      this.registerCharacterAnimations(agent.id,texture);const shadow=this.add.ellipse(0,-1,27,9,0x243b34,.22),ring=this.add.ellipse(0,-1,37,13).setStrokeStyle(2,0xffe0a0).setVisible(false),sprite=this.add.sprite(0,0,texture,0).setOrigin(.5,1).setScale(.56);
+      const name=this.text(0,5,agent.name,14,'#344c3c',{fontStyle:'bold',backgroundColor:'#fffaf0',padding:{x:5,y:2}}).setOrigin(.5,0);
+      const action=this.text(0,26,'',10,'#6e7768',{backgroundColor:'#fffaed',padding:{x:3,y:1}}).setOrigin(.5,0);
+      const equipment=this.text(19,-47,'',10,'#fffaf0',{backgroundColor:'#536b5a',padding:{x:4,y:2}}).setOrigin(0,1).setVisible(false);
+      const container=this.add.container(0,0,[shadow,ring,sprite]);
+      // Furniture occludes the body by foot position, but names and activity
+      // labels stay readable when someone sits beside a southern wall.
+      const badges=this.add.container(0,0,[name,action,equipment]).setDepth(3400+index);
+      this.characters.set(agent.id,{id:agent.id,container,badges,sprite,ring,name,action,equipment,appearance:appearanceIdentity(agent,index),direction:'down',zone:agent.zone,path:null,motion:null,moving:false,presentation:null,animationKey:null,anchor:null});
     }
     syncCharacters(frame){
-      // A seed reset can assign a different persona to the same stable actor ID.
-      // Reuse the scene; refresh only the names and changed resident artwork.
-      const changed=frame.agents.some((agent,index)=>this.characters.get(agent.id)?.appearance!==appearanceIdentity(agent,index));
-      for(const agent of frame.agents){const actor=this.characters.get(agent.id);if(actor&&actor.name.text!==agent.name)actor.name.setText(agent.name);}
-      if(!changed)return false;
+      const changed=frame.agents.some((agent,index)=>this.characters.get(agent.id)?.appearance!==appearanceIdentity(agent,index));for(const agent of frame.agents){const actor=this.characters.get(agent.id);if(actor&&actor.name.text!==agent.name)actor.name.setText(agent.name);}if(!changed)return false;
       const assets=townAssets.registerTownAssets(this,frame.agents);this.assets=assets;
-      for(const [index,agent] of frame.agents.entries()){
-        const actor=this.characters.get(agent.id),identity=appearanceIdentity(agent,index);
-        if(!actor){this.addCharacter(agent,assets.characterKeys[agent.id],index);continue;}
-        if(actor.appearance===identity)continue;
-        actor.motion?.stop();actor.motion=null;actor.moving=false;
-        actor.sprite.anims.stop();actor.animationKey=null;
-        this.registerCharacterAnimations(agent.id,assets.characterKeys[agent.id]);
-        actor.sprite.setTexture(assets.characterKeys[agent.id],0);
-        actor.appearance=identity;actor.direction='down';
-      }
+      for(const [index,agent] of frame.agents.entries()){const actor=this.characters.get(agent.id),identity=appearanceIdentity(agent,index);if(!actor){this.addCharacter(agent,assets.characterKeys[agent.id],index);continue;}if(actor.appearance===identity)continue;actor.motion?.stop();actor.motion=null;actor.moving=false;actor.sprite.anims.stop();actor.animationKey=null;this.registerCharacterAnimations(agent.id,assets.characterKeys[agent.id]);actor.sprite.setTexture(assets.characterKeys[agent.id],0);actor.appearance=identity;actor.direction='down';}
       return true;
     }
-    play(actor,name,active){
-      const key=`${actor.id}-${name}`;
-      if(actor.animationKey!==key){actor.sprite.play(key,true);actor.animationKey=key;}
-      if(active)actor.sprite.anims.resume();else actor.sprite.anims.pause();
-    }
+    play(actor,name,active){const key=`${actor.id}-${name}`;if(actor.animationKey!==key){actor.sprite.play(key,true);actor.animationKey=key;}if(active)actor.sprite.anims.resume();else actor.sprite.anims.pause();}
     settle(actor){
-      actor.moving=false;
-      const p=actor.presentation;
-      if(!p)return;
+      actor.moving=false;const p=actor.presentation;if(!p)return;actor.sprite.setScale(.56,actor.anchor?.seated&&p.pose==='work' ? .50 : .56);actor.sprite.y=0;if(actor.anchor?.facing)actor.direction=actor.anchor.facing;
       if(p.target){const target=this.characters.get(p.target);if(target)actor.direction=directionBetween([actor.container.x,actor.container.y],[target.container.x,target.container.y],actor.direction);}
       const active=this.options.playing&&!this.options.reducedMotion;
-      // Talk art faces down; side / back idle frames preserve the actual listener direction.
-      if(p.pose==='talk'&&actor.direction!=='down'){actor.sprite.anims.stop();actor.sprite.setFrame(idleFrames[actor.direction]);actor.animationKey=null;}
-      else if(p.pose!=='idle')this.play(actor,p.pose,active);
-      else {actor.sprite.anims.stop();actor.sprite.setFrame(idleFrames[actor.direction]);actor.animationKey=null;}
+      const directional=`${p.pose}-${actor.direction}`;
+      if(p.pose!=='idle')this.play(actor,characterClips[directional]?directional:p.pose,active);else{actor.sprite.anims.stop();actor.sprite.setFrame(idleFrames[actor.direction]);actor.animationKey=null;}
     }
-    place(actor,point){actor.container.setPosition(point[0],point[1]).setDepth(point[1]+.1);}
+    place(actor,point){actor.container.setPosition(point[0],point[1]).setDepth(point[1]+.1);actor.badges.setPosition(point[0],point[1]);}
     applyFrame({frame,options}){
-      if(!frame)return;
-      if(!this.built)this.build(frame);
-      const identitiesChanged=this.syncCharacters(frame);
-      const previous=this.frame,oldOptions=this.options;
-      const same=!identitiesChanged&&previous&&previous.tick===frame.tick&&previous.config.seed===frame.config.seed&&previous.config.capacity===frame.config.capacity;
-      const continuous=!identitiesChanged&&isContinuousFrame(previous,frame);
-      this.frame=frame;this.options=options;
+      if(!frame)return;if(!this.built)this.build(frame);const identitiesChanged=this.syncCharacters(frame),previous=this.frame,oldOptions=this.options;
+      const same=!identitiesChanged&&previous&&previous.tick===frame.tick&&previous.config.seed===frame.config.seed&&previous.config.capacity===frame.config.capacity,continuous=!identitiesChanged&&isContinuousFrame(previous,frame);this.frame=frame;this.options=options;
       for(const agent of frame.agents){
-        const actor=this.characters.get(agent.id);if(!actor)continue;
-        actor.ring.setVisible(agent.id===options.selected);
-        actor.name.setColor(agent.id===options.selected?'#1d644b':'#344c3c');
-        if(same){
-          if(options.reducedMotion&&actor.moving){actor.motion?.stop();this.place(actor,actor.destination);this.settle(actor);}
-          else if(actor.moving&&oldOptions.playing!==options.playing){if(options.playing){actor.motion?.resume();actor.sprite.anims.resume();}else{actor.motion?.pause();actor.sprite.anims.pause();}}
-          else if(!actor.moving)this.settle(actor);
-          continue;
-        }
-        // Fast manual stepping may interrupt a walk. Finish the old display
-        // transition before routing from its settled zone into the next one.
+        const actor=this.characters.get(agent.id);if(!actor)continue;actor.ring.setVisible(agent.id===options.selected);actor.name.setColor(agent.id===options.selected?'#1d644b':'#344c3c');actor.action.setVisible(agent.id===options.selected||zoom>=2.2);
+        if(same){if(options.reducedMotion&&actor.moving){actor.motion?.stop();this.place(actor,actor.destination);this.settle(actor);}else if(actor.moving&&oldOptions.playing!==options.playing){if(options.playing){actor.motion?.resume();actor.sprite.anims.resume();}else{actor.motion?.pause();actor.sprite.anims.pause();}}else if(!actor.moving)this.settle(actor);continue;}
+        // Complete an interrupted display step before deriving its next grid path.
         if(continuous&&actor.moving&&actor.destination)this.place(actor,actor.destination);
-        actor.motion?.stop();actor.motion=null;
-        actor.presentation=characterPresentation(frame,agent.id);
-        const p=actor.presentation;
-        actor.action.setText(p.failed?'未能執行':p.proposal?(ACTION_NAMES[p.proposal.action]||'觀察中'):'觀察中').setColor(p.failed?'#a46e51':'#6e7768');
-        actor.equipment.setVisible(!!p.held);
-        if(p.held)actor.equipment.setText(`${p.held.type==='camera'?'相機':'工具'}${p.held.usableFrom>frame.tick?' · 下步可用':' · 持有'}`);
-        const destination=characterPosition(agent,frame);
-        const from=previous?[actor.container.x,actor.container.y]:destination;
-        const oldAgent=previous?.agents.find(a=>a.id===agent.id);
-        actor.path=presentationPath(from,destination,oldAgent?.zone??agent.zone,agent.zone);
-        actor.destination=destination;actor.zone=agent.zone;
-        const distance=actor.path.slice(1).reduce((sum,p,i)=>sum+Math.hypot(p[0]-actor.path[i][0],p[1]-actor.path[i][1]),0);
-        if(continuous&&options.animate!==false&&!options.reducedMotion&&!p.failed&&distance>1){
-          const progress={value:0};actor.moving=true;
-          actor.motion=this.tweens.add({targets:progress,value:1,duration:Math.max(160,options.duration),ease:'Linear',onUpdate:()=>{
-            const next=samplePath(actor.path,progress.value);actor.direction=directionBetween([actor.container.x,actor.container.y],next,actor.direction);
-            this.place(actor,next);this.play(actor,actor.direction,true);
-          },onComplete:()=>{this.place(actor,destination);this.settle(actor);this.layoutBubbles();}});
-        } else {this.place(actor,destination);this.settle(actor);}
+        actor.motion?.stop();actor.motion=null;actor.presentation=characterPresentation(frame,agent.id);actor.anchor=activityAnchor(agent,frame);const p=actor.presentation;
+        actor.action.setText(p.failed?'未能執行':actor.anchor?.label||(p.proposal?ACTION_NAMES[p.proposal.action]:'觀察中')).setColor(p.failed?'#a46e51':'#6e7768');actor.equipment.setVisible(!!p.held);if(p.held)actor.equipment.setText(`${p.held.type==='camera'?'相機':'工具'}${p.held.usableFrom>frame.tick?' · 下步可用':''}`);
+        const destination=characterPosition(agent,frame),from=previous?[actor.container.x,actor.container.y]:destination,oldAgent=previous?.agents.find(a=>a.id===agent.id);
+        actor.path=presentationPath(from,destination,oldAgent?.zone??agent.zone,agent.zone);actor.destination=destination;actor.zone=agent.zone;const distance=pathLength(actor.path);
+        if(continuous&&options.animate!==false&&!options.reducedMotion&&distance>1){
+          const progress={value:0};actor.moving=true;actor.sprite.setScale(.56);
+          actor.motion=this.tweens.add({targets:progress,value:1,duration:Math.max(180,options.duration),ease:'Linear',onUpdate:()=>{const next=samplePath(actor.path,progress.value);actor.direction=directionBetween([actor.container.x,actor.container.y],next,actor.direction);this.place(actor,next);this.play(actor,actor.direction,true);},onComplete:()=>{this.place(actor,destination);this.settle(actor);this.layoutBubbles();}});
+        }else{this.place(actor,destination);this.settle(actor);}
       }
-      if(!same){
-        // All positions are set before the final facing pass (including an earlier-listed listener).
-        for(const actor of this.characters.values())if(!actor.moving)this.settle(actor);
-        this.makeBubbles(frame,options.selected);
-        this.updateWorldLabels(frame);
-      } else if(oldOptions.selected!==options.selected)this.makeBubbles(frame,options.selected);
-      const ambientActive=options.playing&&!options.reducedMotion;
-      for(const tween of this.ambientTweens){if(ambientActive)tween.resume();else tween.pause();}
-      if(following&&oldOptions.selected!==options.selected)this.applyCamera();
-      this.layoutBubbles();
+      if(!same){for(const actor of this.characters.values())if(!actor.moving)this.settle(actor);this.makeBubbles(frame,options.selected);this.updateWorldLabels(frame);}else if(oldOptions.selected!==options.selected)this.makeBubbles(frame,options.selected);
+      for(const tween of this.ambientTweens){if(options.playing&&!options.reducedMotion)tween.resume();else tween.pause();}if(following&&oldOptions.selected!==options.selected)this.applyCamera();this.layoutBubbles();
     }
     updateWorldLabels(frame){
-      for(const [zone,label] of Object.entries(this.equipmentLabels)){
-        const items=frame.equipment.filter(e=>e.zone===zone),held=items.filter(e=>e.owner),newly=held.filter(e=>e.usableFrom>frame.tick).length;
-        label.setText(`${zone==='workshop'?'工具':'相機'}  ${items.length-held.length}/${items.length} 可借${held.length?` · ${held.length} 持有`:''}${newly?`（${newly} 下步可用）`:''}`);
-      }
-      const slot=(Math.max(1,frame.tick)-1)%12;
-      const night=slot>=9 ? .12:slot>=6?.035:0;
-      this.phaseOverlay.setAlpha(night);
-      this.ambientLights.forEach((light,i)=>light.setAlpha(slot>=9?(i%2?.52:.16):0));
+      for(const [zone,label] of Object.entries(this.equipmentLabels)){const items=frame.equipment.filter(e=>e.zone===zone),held=items.filter(e=>e.owner);label.setText(`${zone==='workshop'?'工具':'相機'}  ${items.length-held.length}/${items.length} 可借${held.length?` · ${held.length} 持有`:''}`);}
+      const slot=(Math.max(1,frame.tick)-1)%12;this.phaseOverlay.setAlpha(slot>=9?.12:slot>=6?.035:0);this.ambientLights.forEach((light,i)=>light.setAlpha(slot>=9?(i%2?.52:.16):0));
     }
     makeBubbles(frame,selected){
       for(const bubble of this.bubbles)bubble.container.destroy();this.bubbles=[];
       for(const event of visibleUtterances(frame,selected,3)){
-        const actor=this.characters.get(event.participants[0]);if(!actor)continue;
-        const speaker=frame.agents.find(a=>a.id===actor.id)?.name??'';
-        const content=String(event.text).slice(0,68);
-        const text=this.text(16,38,wrap(content)+(event.text.length>68?'…':''),18,'#405044',{lineSpacing:5});
-        const width=Math.min(360,Math.max(220,text.width+32)),height=text.height+55;
-        const graphics=this.add.graphics();graphics.fillStyle(0x3b513d,.10).fillRoundedRect(4,6,width,height,12);graphics.fillStyle(0xfffcf3,.98).fillRoundedRect(0,0,width,height,12);graphics.lineStyle(1,event.participants[0]===selected?0x689879:0xb9c7a8,1).strokeRoundedRect(0,0,width,height,12);
-        graphics.fillStyle(0xfffcf3,1).fillTriangle(width/2-9,height-1,width/2+9,height-1,width/2,height+12);
-        const title=this.text(16,11,`${speaker} · ${ACTION_NAMES[event.type]||'交談'}`,15,'#8c805e',{fontStyle:'bold'});
-        const container=this.add.container(0,0,[graphics,title,text]).setDepth(6000+this.bubbles.length);
-        this.bubbles.push({actor,container,width,height,event});
+        const actor=this.characters.get(event.participants[0]);if(!actor)continue;const speaker=frame.agents.find(a=>a.id===actor.id)?.name??'',content=String(event.text).slice(0,64);
+        const text=this.text(12,29,wrap(content)+(event.text.length>64?'…':''),13,'#405044',{lineSpacing:4}),width=Math.min(256,Math.max(164,text.width+24)),height=text.height+42;
+        const graphics=this.add.graphics();graphics.fillStyle(0x3b513d,.10).fillRoundedRect(3,4,width,height,8);graphics.fillStyle(0xfffcf3,.98).fillRoundedRect(0,0,width,height,8);graphics.lineStyle(1,event.participants[0]===selected?0x689879:0xb9c7a8,1).strokeRoundedRect(0,0,width,height,8);graphics.fillStyle(0xfffcf3,1).fillTriangle(width/2-6,height-1,width/2+6,height-1,width/2,height+9);
+        const title=this.text(12,8,`${speaker} · ${ACTION_NAMES[event.type]||'交談'}`,11,'#8c805e',{fontStyle:'bold'}),container=this.add.container(0,0,[graphics,title,text]).setDepth(6000+this.bubbles.length);this.bubbles.push({actor,container,width,height,event});
       }
       this.layoutBubbles();
     }
     layoutBubbles(){
       const placed=[];
-      for(const bubble of this.bubbles){
-        const {actor,container,width,height}=bubble;
-        // Current-step speech stays readable until the next world frame. It appears
-        // after a walking transition, and is never borrowed from a future trace.
-        container.setVisible(!actor.moving);
-        const idealX=actor.container.x-width/2,idealY=actor.container.y-height-116;
-        const candidates=[];
-        for(const dy of [0,-height-15,height+176])for(const dx of [0,-width-10,width+10]){
-          const x=clip(idealX+dx,10,W-width-10),y=clip(idealY+dy,8,H-height-10);
-          const overlaps=placed.reduce((sum,p)=>sum+(x<p.x+p.width+8&&x+width+8>p.x&&y<p.y+p.height+8&&y+height+8>p.y?1:0),0);
-          candidates.push({x,y,score:overlaps*10000000+(x-idealX)**2+(y-idealY)**2});
-        }
-        const {x,y}=candidates.sort((a,b)=>a.score-b.score)[0];
-        container.setPosition(x,y);placed.push({x,y,width,height});
+      for(const bubble of this.bubbles){const {actor,container,width,height}=bubble;container.setVisible(!actor.moving);const idealX=actor.container.x-width/2,idealY=actor.container.y-height-64,candidates=[];
+        for(const dy of [0,-height-12,height+118])for(const dx of [0,-width-8,width+8]){const x=clip(idealX+dx,10,W-width-10),y=clip(idealY+dy,8,H-height-10),overlaps=placed.reduce((sum,p)=>sum+(x<p.x+p.width+8&&x+width+8>p.x&&y<p.y+p.height+8&&y+height+8>p.y?1:0),0);candidates.push({x,y,score:overlaps*10000000+(x-idealX)**2+(y-idealY)**2});}
+        const {x,y}=candidates.sort((a,b)=>a.score-b.score)[0];container.setPosition(x,y);placed.push({x,y,width,height});
       }
     }
-    update(){if(this.bubbles.some(b=>b.actor.moving))this.layoutBubbles();notifyCamera();}
+    buildVisitor(){
+      const key='town-observer-v1';
+      if(!this.textures.exists(key)){
+        const canvas=document.createElement('canvas');canvas.width=32*16;canvas.height=48;const c=canvas.getContext('2d'),r=(x,y,w,h,color)=>{c.fillStyle=color;c.fillRect(x,y,w,h);};
+        for(let frame=0;frame<16;frame++){
+          c.save();c.translate(frame*32,0);const direction=Math.floor(frame/4),phase=frame%4,stride=[0,2,0,-2][phase],back=direction===3,side=direction===1||direction===2;if(direction===1){c.translate(32,0);c.scale(-1,1);}
+          r(9,32,6,10+stride,'#344f67');r(18,32,6,10-stride,'#233e54');r(8,41+stride,8,4,'#253940');r(17,41-stride,9,4,'#253940');r(8,20,17,14,'#dbeadf');r(9,22,3,12,'#adc9bf');r(11,32,12,2,'#a9bfb3');r(5,22+stride,4,13,'#cee0d4');r(5,33+stride,4,4,'#e7b58e');r(25,22-stride,3,13,'#9cbdb1');r(25,33-stride,3,4,'#d9a27f');
+          if(back){r(11,22,11,14,'#447f92');r(13,24,7,7,'#7fafba');r(13,33,7,2,'#315e78');}else{r(12,21,2,13,'#599098');r(21,21,2,13,'#599098');r(13,25,8,4,'#f8faf0');}
+          r(10,8,14,13,'#e8b78f');r(10,9,3,9,'#cd9571');r(9,5,15,8,'#30595b');r(8,8,18,4,'#447d79');r(10,4,13,5,'#5e9a8a');if(back)r(10,12,14,7,'#3c4542');else{r(side?21:14,14,2,2,'#354747');if(!side)r(21,14,2,2,'#354747');r(side?23:18,18,3,1,'#aa735e');}c.restore();
+        }
+        this.textures.addSpriteSheet(key,canvas,{frameWidth:32,frameHeight:48});
+      }
+      const spawn=nearestWalkable([W/2,H/2]),shadow=this.add.ellipse(0,-1,27,9,0x243b34,.24),halo=this.add.ellipse(0,-1,39,14).setStrokeStyle(2,0x59b8af,.9),sprite=this.add.sprite(0,0,key,0).setOrigin(.5,1);
+      const label=this.text(0,5,'我 · 訪客',12,'#f9fffb',{backgroundColor:'#317a78',padding:{x:6,y:3}}).setOrigin(.5,0),container=this.add.container(spawn[0],spawn[1],[shadow,halo,sprite]).setDepth(spawn[1]+.2).setVisible(false);
+      const badges=this.add.container(spawn[0],spawn[1],[label]).setDepth(3490).setVisible(false);
+      const marker=this.add.ellipse(0,0,22,12).setStrokeStyle(2,0x399d94,.8).setVisible(false).setDepth(3200),route=this.add.graphics().setDepth(2);
+      this.visitor={container,badges,sprite,marker,route,moving:false,path:[],distance:0,progress:0,direction:'down',walkPhase:0,pendingObject:null,keyboardStep:false};
+    }
+    toggleExplore(){if(!this.visitor)return;this.keys.clear();this.visitor.container.setVisible(exploring);this.visitor.badges.setVisible(exploring);if(!exploring){this.stopVisitor();this.objectHighlight?.clear();}else this.game.canvas.focus({preventScroll:true});this.game.canvas.style.cursor=exploring?'crosshair':'grab';}
+    stopVisitor(){const v=this.visitor;if(!v)return;v.moving=false;v.pendingObject=null;v.path=[];v.marker.setVisible(false);v.route.clear();v.sprite.setFrame(idleFrames[v.direction]*4);notifyExplore();}
+    walkVisitor(destination,{object=null,keyboard=false}={}){
+      const v=this.visitor;if(!exploring||!v||!destination)return false;const from=[v.container.x,v.container.y];
+      // Finish the partial current cell segment before rerouting: no teleport
+      // across adjacent walls or diagonal cuts through narrow door corners.
+      const snapped=nearestWalkable(from),target=nearestWalkable(destination),route=findWalkPath(snapped,target);
+      if(!route.length){notifyExplore('目前沒有能走到這裡的通道。',true);return false;}
+      const path=Math.hypot(from[0]-snapped[0],from[1]-snapped[1])>.1?[from,snapped,...route.slice(1)]:route,distance=pathLength(path);
+      v.pendingObject=object;v.keyboardStep=keyboard;v.path=path;v.distance=distance;v.progress=0;following=false;explorerFollowing=true;this.applyCamera();
+      if(distance<1){if(object)onInspectObject(object);this.stopVisitor();return true;}
+      v.moving=true;v.marker.setPosition(target[0],target[1]).setVisible(!keyboard);v.route.clear();
+      if(!keyboard){v.route.lineStyle(2,0x5b9c8b,.45);v.route.beginPath();path.forEach((point,i)=>i?v.route.lineTo(...point):v.route.moveTo(...point));v.route.strokePath();}
+      notifyExplore(object?`走近${object.name}`:'',true);return true;
+    }
+    inspectNearestObject(){
+      const v=this.visitor;if(!v)return;
+      const from=[v.container.x,v.container.y],limit=TILE_SIZE*2.25;
+      const nearby=MAP_OBJECTS.filter(o=>o.approach&&Math.hypot(o.approach[0]-from[0],o.approach[1]-from[1])<=limit).map(object=>{
+        const path=findWalkPath(from,object.approach);return {object,distance:path.length?pathLength(path):Infinity};
+      }).filter(item=>item.distance<=limit).sort((a,b)=>a.distance-b.distance)[0];
+      if(nearby)onInspectObject(nearby.object);else notifyExplore('走近桌椅、書架或工作檯，再按 E 查看。',true);
+    }
+    updateVisitor(delta){
+      const v=this.visitor;if(!exploring||!v)return;const canvasFocused=document.activeElement===this.game.canvas&&!document.querySelector('dialog[open]');if(!canvasFocused)this.keys.clear();
+      const requested=this.keys.has('w')||this.keys.has('arrowup')?[0,-1,'up']:this.keys.has('s')||this.keys.has('arrowdown')?[0,1,'down']:this.keys.has('a')||this.keys.has('arrowleft')?[-1,0,'left']:this.keys.has('d')||this.keys.has('arrowright')?[1,0,'right']:null;
+      if(requested&&(!v.moving||!v.keyboardStep)){const from=nearestWalkable([v.container.x,v.container.y]),target=[from[0]+requested[0]*TILE_SIZE,from[1]+requested[1]*TILE_SIZE];v.direction=requested[2];if(isWalkable(...target))this.walkVisitor(target,{keyboard:true});else v.sprite.setFrame(idleFrames[v.direction]*4);}
+      if(!v.moving)return;
+      // A released key completes at most its current tile. Point-and-walk is
+      // independent and continues to its selected destination.
+      v.progress=Math.min(v.distance,v.progress+Math.min(delta,50)*.19);const before=[v.container.x,v.container.y],point=samplePath(v.path,v.distance?v.progress/v.distance:1);
+      v.direction=directionBetween(before,point,v.direction);v.container.setPosition(...point).setDepth(point[1]+.2);v.badges.setPosition(...point);v.walkPhase+=Math.min(delta,50);v.sprite.setFrame(idleFrames[v.direction]*4+(this.options.reducedMotion?0:Math.floor(v.walkPhase/120)%4));
+      if(v.progress>=v.distance){const object=v.pendingObject;this.stopVisitor();if(object)onInspectObject(object);}notifyExplore();
+    }
+    update(time,delta){this.updateVisitor(delta);if(this.bubbles.some(b=>b.actor.moving))this.layoutBubbles();notifyCamera();}
   }
-  try {
-    game=new Phaser.Game({type:Phaser.AUTO,parent:host,width:VIEW_WIDTH*dpr,height:VIEW_HEIGHT*dpr,backgroundColor:'#d4dfb5',banner:false,
-      scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH,width:VIEW_WIDTH*dpr,height:VIEW_HEIGHT*dpr,expandParent:false},
-      render:{pixelArt:true,roundPixels:true},audio:{noAudio:true},fps:{target:60},scene:TownScene,
-    });
-    if(globalThis.ResizeObserver){observer=new ResizeObserver(resize);observer.observe(host);}
-    globalThis.addEventListener('resize',resize);
-  } catch(error){reportError(error);}
+  try{
+    game=new Phaser.Game({type:Phaser.AUTO,parent:host,width:VIEW_WIDTH*dpr,height:viewHeight*dpr,backgroundColor:'#dce5c5',banner:false,scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH,width:VIEW_WIDTH*dpr,height:viewHeight*dpr,expandParent:false},render:{pixelArt:true,roundPixels:true},audio:{noAudio:true},fps:{target:60},scene:TownScene});
+    if(globalThis.ResizeObserver){resizeObserver=new ResizeObserver(resize);resizeObserver.observe(host);}globalThis.addEventListener('resize',resize);
+  }catch(error){reportError(error);}
   return api;
 }
