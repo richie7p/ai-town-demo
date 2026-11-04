@@ -128,9 +128,20 @@ export function createTownScene(host,{onSelect=()=>{},onCameraChange=()=>{},onEx
       if(reset)camera.stopFollow().centerOn(W/2,H/2);else camera.centerOn(Number.isFinite(center.x)?center.x:W/2,Number.isFinite(center.y)?center.y:H/2);
       const target=exploring&&explorerFollowing?this.visitor?.container:following?this.characters.get(this.options.selected)?.container:null;
       if(target)camera.startFollow(target,true,this.options.reducedMotion?1:.14,this.options.reducedMotion?1:.14);else camera.stopFollow();
-      for(const actor of this.characters.values())actor.action.setVisible(actor.id===this.options.selected||zoom>=2.2);
+      this.updateBadges();
     }
     text(x,y,content,size=13,color='#3e5144',extra={}){return this.add.text(x,y,content,{fontFamily:FONT,fontSize:`${size}px`,color,resolution:2,...extra});}
+    updateBadges(){
+      // Keep the room readable: names identify everyone, while the selected
+      // resident carries the detailed activity and equipment labels.
+      for(const actor of this.characters.values()){
+        const selected=actor.id===this.options.selected;
+        actor.name.setVisible(zoom>=1.4||selected).setColor(selected?'#ffffff':'#f3f4e9');
+        actor.name.setBackgroundColor(selected?'#285649':'#354a43');
+        actor.action.setVisible(selected);
+        actor.equipment.setVisible(selected&&!!actor.presentation?.held);
+      }
+    }
     build(frame){
       const assets=townAssets.registerTownAssets(this,frame.agents);this.assets=assets;if(!this.textures.exists(assets.backgroundKey))throw new Error('小鎮背景尚未載入完成。');
       this.add.image(0,0,assets.backgroundKey).setOrigin(0,0).setDisplaySize(W,H).setDepth(0);for(const layer of assets.foreground)this.add.image(layer.x,layer.y,layer.key).setOrigin(0,0).setDepth(layer.depth);
@@ -147,9 +158,9 @@ export function createTownScene(host,{onSelect=()=>{},onCameraChange=()=>{},onEx
     }
     addCharacter(agent,texture,index){
       this.registerCharacterAnimations(agent.id,texture);const shadow=this.add.ellipse(0,-1,27,9,0x243b34,.22),ring=this.add.ellipse(0,-1,37,13).setStrokeStyle(2,0xffe0a0).setVisible(false),sprite=this.add.sprite(0,0,texture,0).setOrigin(.5,1).setScale(.56);
-      const name=this.text(0,5,agent.name,14,'#344c3c',{fontStyle:'bold',backgroundColor:'#fffaf0',padding:{x:5,y:2}}).setOrigin(.5,0);
-      const action=this.text(0,26,'',10,'#6e7768',{backgroundColor:'#fffaed',padding:{x:3,y:1}}).setOrigin(.5,0);
-      const equipment=this.text(19,-47,'',10,'#fffaf0',{backgroundColor:'#536b5a',padding:{x:4,y:2}}).setOrigin(0,1).setVisible(false);
+      const name=this.text(0,4,agent.name,12,'#f3f4e9',{fontStyle:'bold',backgroundColor:'#354a43',padding:{x:5,y:2}}).setOrigin(.5,0);
+      const action=this.text(0,25,'',10,'#526350',{backgroundColor:'#f4eedb',padding:{x:4,y:2}}).setOrigin(.5,0);
+      const equipment=this.text(18,-50,'',10,'#fffaf0',{backgroundColor:'#285649',padding:{x:4,y:2}}).setOrigin(0,1).setVisible(false);
       const container=this.add.container(0,0,[shadow,ring,sprite]);
       // Furniture occludes the body by foot position, but names and activity
       // labels stay readable when someone sits beside a southern wall.
@@ -175,7 +186,7 @@ export function createTownScene(host,{onSelect=()=>{},onCameraChange=()=>{},onEx
       if(!frame)return;if(!this.built)this.build(frame);const identitiesChanged=this.syncCharacters(frame),previous=this.frame,oldOptions=this.options;
       const same=!identitiesChanged&&previous&&previous.tick===frame.tick&&previous.config.seed===frame.config.seed&&previous.config.capacity===frame.config.capacity,continuous=!identitiesChanged&&isContinuousFrame(previous,frame);this.frame=frame;this.options=options;
       for(const agent of frame.agents){
-        const actor=this.characters.get(agent.id);if(!actor)continue;actor.ring.setVisible(agent.id===options.selected);actor.name.setColor(agent.id===options.selected?'#1d644b':'#344c3c');actor.action.setVisible(agent.id===options.selected||zoom>=2.2);
+        const actor=this.characters.get(agent.id);if(!actor)continue;actor.ring.setVisible(agent.id===options.selected);
         if(same){if(options.reducedMotion&&actor.moving){actor.motion?.stop();this.place(actor,actor.destination);this.settle(actor);}else if(actor.moving&&oldOptions.playing!==options.playing){if(options.playing){actor.motion?.resume();actor.sprite.anims.resume();}else{actor.motion?.pause();actor.sprite.anims.pause();}}else if(!actor.moving)this.settle(actor);continue;}
         // Complete an interrupted display step before deriving its next grid path.
         if(continuous&&actor.moving&&actor.destination)this.place(actor,actor.destination);
@@ -189,7 +200,7 @@ export function createTownScene(host,{onSelect=()=>{},onCameraChange=()=>{},onEx
         }else{this.place(actor,destination);this.settle(actor);}
       }
       if(!same){for(const actor of this.characters.values())if(!actor.moving)this.settle(actor);this.makeBubbles(frame,options.selected);this.updateWorldLabels(frame);}else if(oldOptions.selected!==options.selected)this.makeBubbles(frame,options.selected);
-      for(const tween of this.ambientTweens){if(options.playing&&!options.reducedMotion)tween.resume();else tween.pause();}if(following&&oldOptions.selected!==options.selected)this.applyCamera();this.layoutBubbles();
+      for(const tween of this.ambientTweens){if(options.playing&&!options.reducedMotion)tween.resume();else tween.pause();}this.updateBadges();if(following&&oldOptions.selected!==options.selected)this.applyCamera();this.layoutBubbles();
     }
     updateWorldLabels(frame){
       for(const [zone,label] of Object.entries(this.equipmentLabels)){const items=frame.equipment.filter(e=>e.zone===zone),held=items.filter(e=>e.owner);label.setText(`${zone==='workshop'?'工具':'相機'}  ${items.length-held.length}/${items.length} 可借${held.length?` · ${held.length} 持有`:''}`);}
