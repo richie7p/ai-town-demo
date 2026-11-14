@@ -15,6 +15,7 @@
     <script type="module" src="./app.js"></script>
   </head>
   <body>
+    <!-- Top bar: page mode (town / research) and run settings. -->
     <header class="topbar">
       <a class="brand" href="#town-section"
         ><span class="brand-icon" aria-hidden="true">田</span
@@ -29,6 +30,7 @@
       </button>
     </header>
     <main>
+      <!-- Intro. -->
       <section class="intro">
         <div>
           <p class="eyebrow"><span></span> LIVE IN THE LITTLE THINGS</p>
@@ -40,6 +42,7 @@
           <div><strong>離線生活示範</strong><small>規則型角色 · 非 LLM 實驗結果</small></div>
         </div>
       </section>
+      <!-- Town: the Phaser stage with its controls, the resident strip and the inspector. Panels are filled by app.js. -->
       <section class="town-layout" id="town-section" aria-label="小鎮觀察室">
         <div class="world-column">
           <div class="world-panel">
@@ -77,6 +80,7 @@
                 <span class="visitor-dot"></span><strong id="visitor-location">探訪小鎮</strong
                 ><small id="visitor-hint">點地面行走 · WASD／方向鍵 · E 查看家具</small>
               </div>
+              <!-- Furniture card, shown when a piece of furniture is inspected. -->
               <aside id="object-card" class="object-card" hidden aria-label="空間物件資訊">
                 <button id="object-close" aria-label="關閉物件資訊">×</button
                 ><span class="object-kicker" id="object-zone">空間裡的小事</span>
@@ -91,6 +95,7 @@
                 </button>
               </div>
             </div>
+            <!-- Camera and visitor controls. -->
             <div class="camera-toolbar" aria-label="鏡頭控制">
               <button id="explore-toggle" class="explore-toggle" aria-pressed="false" disabled>
                 ↗ 探訪小鎮
@@ -103,6 +108,7 @@
               <button id="camera-reset" disabled>全鎮視角</button
               ><button id="camera-follow" aria-pressed="false" disabled>◎ 跟隨居民</button>
             </div>
+            <!-- Playback: play / step / speed, then the timeline. -->
             <div class="transport">
               <button id="play" class="primary">▶ 開始生活</button
               ><button id="step" class="quiet">下一步 →</button
@@ -124,12 +130,14 @@
               >
             </div>
           </div>
+          <!-- Residents (filled by app.js). -->
           <div class="residents-heading">
             <h2>居民 <span>8</span></h2>
             <span>生活中</span>
           </div>
           <div class="resident-strip" id="residents" aria-label="選擇居民"></div>
         </div>
+        <!-- Inspector: the selected resident now, their memories and their interactions. -->
         <aside class="inspector" aria-label="居民觀察">
           <div class="inspector-heading">
             <span>正在觀察</span><span class="mini-label" id="agent-zone">住宅區</span>
@@ -150,6 +158,7 @@
           </div>
         </aside>
       </section>
+      <!-- Town journal and interaction network. -->
       <section class="stories-layout" id="stories">
         <div class="story-panel">
           <div class="section-heading">
@@ -183,6 +192,7 @@
           <div id="network-stats" class="network-stats"></div>
         </div>
       </section>
+      <!-- Research observation: V5 metrics, background jobs and the rule summary. -->
       <section class="research-panel" id="research" hidden>
         <div class="section-heading">
           <div>
@@ -247,6 +257,7 @@
         ><span>研究計畫 V5 · HTML ＋ Phaser 互動展示 v0.7</span>
       </footer>
     </main>
+    <!-- Dialogs: new run settings and event evidence. -->
     <dialog id="settings-dialog">
       <form id="settings-form">
         <div class="dialog-heading">
@@ -285,6 +296,7 @@
       </div>
       <div id="evidence-body"></div>
     </dialog>
+    <!-- Status messages. -->
     <div id="toast" role="status" aria-live="polite" hidden></div>
   </body>
 </html>

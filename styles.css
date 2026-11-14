@@ -1,5 +1,11 @@
 @charset "UTF-8";
-/* v0.6: a quiet frame around the living town. */
+/*
+ * AI 小鎮 page styles. The town itself is drawn by Phaser on a canvas; these
+ * styles frame it with the resident list, inspector, journal and research panel.
+ * Sections follow the page from top to bottom; responsive overrides are at the end.
+ */
+
+/* ---------------------------------------------------------------- Design tokens */
 :root {
   --forest: #285649;
   --ink: #263d43;
@@ -18,6 +24,8 @@
   background: var(--paper);
   font-synthesis: none;
 }
+
+/* ----------------------------------------------- Base elements and buttons */
 * {
   box-sizing: border-box;
 }
@@ -93,6 +101,8 @@ summary:focus-visible,
 [hidden] {
   display: none !important;
 }
+
+/* ----------------------------------------------------------------- Top bar */
 .topbar {
   min-height: 64px;
   padding: 10px 25px;
@@ -167,6 +177,8 @@ summary:focus-visible,
   font-size: 16px;
   margin-right: 5px;
 }
+
+/* -------------------------------------------------------------- Page intro */
 main {
   max-width: 1920px;
   margin: auto;
@@ -237,6 +249,8 @@ h1 > span {
   color: #86958b;
   margin-top: 3px;
 }
+
+/* --------------------- Town panel: layout, heading and district navigation */
 .town-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 282px;
@@ -267,7 +281,7 @@ h1 > span {
   justify-content: space-between;
   gap: 10px;
   padding: 12px 15px;
-  background: #fffefa;
+  background: var(--white);
   border-bottom: 1px solid #e4e9df;
 }
 .world-heading > div {
@@ -322,7 +336,7 @@ h1 > span {
   border: 1px solid #dce5d8;
   border-radius: 5px;
   padding: 7px 11px;
-  background: #fffefa;
+  background: var(--white);
   color: #627764;
 }
 .district-nav button:hover {
@@ -330,6 +344,8 @@ h1 > span {
   border-color: #b1c9a6;
   color: var(--forest);
 }
+
+/* ------------------------- Town stage: canvas, status, caption and minimap */
 .scene-wrap {
   position: relative;
   overflow: hidden;
@@ -450,6 +466,8 @@ h1 > span {
 .town-minimap:hover {
   opacity: 1;
 }
+
+/* --------------------------------------- Visitor status and furniture card */
 .explore-status {
   position: absolute;
   top: 12px;
@@ -529,12 +547,14 @@ h1 > span {
   color: #7c9480;
   line-height: 1.8;
 }
+
+/* -------------------------- Camera toolbar, playback controls and timeline */
 .camera-toolbar {
   display: flex;
   align-items: center;
   gap: 7px;
   padding: 9px 12px;
-  background: #fffefa;
+  background: var(--white);
   border-top: 1px solid #d8e1d2;
   border-bottom: 1px solid #e9ede4;
   flex-wrap: wrap;
@@ -647,6 +667,8 @@ h1 > span {
   accent-color: var(--moss);
   cursor: pointer;
 }
+
+/* ---------------------------------------------------------- Resident strip */
 .residents-heading {
   grid-column: 1;
   grid-row: 1;
@@ -701,7 +723,7 @@ h1 > span {
 .resident.selected {
   background: #dfead5;
   border-color: #aec49a;
-  box-shadow: inset 3px 0 #799a67;
+  box-shadow: inset 3px 0 var(--moss);
 }
 .resident .mini-portrait {
   width: 34px;
@@ -724,6 +746,8 @@ h1 > span {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* ------------------ Portraits (shared by the strip, inspector and journal) */
 .mini-portrait img,
 .portrait img,
 .event-portrait img {
@@ -739,6 +763,8 @@ h1 > span {
   height: 100%;
   image-rendering: pixelated;
 }
+
+/* -------- Inspector: profile, tabs, current action, memory and connections */
 .inspector {
   border: 1px solid #d4dfd3;
   background: var(--white);
@@ -869,7 +895,7 @@ h1 > span {
   background: #7d9b67;
 }
 .outcome.failed .status-dot {
-  background: #b78d62;
+  background: var(--oak);
 }
 .outcome.failed {
   color: #ad7f56;
@@ -993,6 +1019,8 @@ h1 > span {
   font-size: 12px;
   color: #71895e;
 }
+
+/* ------------------------------------------------------------ Town journal */
 .stories-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 350px;
@@ -1105,6 +1133,8 @@ h1 > span {
   color: #98a48c;
   margin: 12px 0 0;
 }
+
+/* ----------------------------------------------------- Interaction network */
 .network-panel .section-heading h2 {
   font-size: 17px;
 }
@@ -1153,6 +1183,8 @@ h1 > span {
   text-align: center;
   margin-bottom: 3px;
 }
+
+/* ---------------------------------------------------------- Research panel */
 .research-panel {
   margin-top: 28px;
   padding: 26px;
@@ -1262,6 +1294,8 @@ th {
   font-size: 15px !important;
   color: var(--forest) !important;
 }
+
+/* ------------------------------------------------------------------ Footer */
 footer {
   display: flex;
   align-items: center;
@@ -1281,6 +1315,8 @@ footer {
   color: #c1cbb4;
   margin: 0 9px;
 }
+
+/* ------------------------------------------ Dialogs: settings and evidence */
 dialog {
   border: 1px solid #cfdcc5;
   border-radius: 12px;
@@ -1386,6 +1422,8 @@ form small {
   overflow: auto;
   padding-right: 5px;
 }
+
+/* ------------------------------------------------------------------- Toast */
 #toast {
   position: fixed;
   z-index: 100;
@@ -1402,6 +1440,8 @@ form small {
   font-size: 12px;
   line-height: 1.7;
 }
+
+/* ------------------------- Expanded town (in-page and browser full screen) */
 .world-panel.expanded {
   position: fixed;
   z-index: 50;
@@ -1463,6 +1503,8 @@ body.town-expanded {
   max-width: 1200px;
   width: 100%;
 }
+
+/* ----------------------- Responsive layout: wide, laptop, tablet and phone */
 @media (min-width: 1700px) {
   .town-layout {
     grid-template-columns: minmax(0, 1fr) 310px;
@@ -1728,7 +1770,7 @@ body.town-expanded {
     align-items: center;
   }
   .resident.selected {
-    box-shadow: inset 2px 0 #799a67;
+    box-shadow: inset 2px 0 var(--moss);
   }
   .resident .mini-portrait {
     grid-row: 1/3;
@@ -2009,6 +2051,8 @@ body.town-expanded {
     width: 90px;
   }
 }
+
+/* ---------------------------------------------------------- Reduced motion */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
