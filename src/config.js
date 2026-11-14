@@ -24,7 +24,16 @@ export const pairKey = (a, b) => [a, b].sort().join('|');
 // Stable demo checksum, not a cryptographic integrity/signature mechanism.
 export function hash(value) {
   let h = 2166136261;
-  for (const c of typeof value === 'string' ? value : JSON.stringify(value)) { h ^= c.codePointAt(0); h = Math.imul(h, 16777619); }
+  const text = typeof value === 'string' ? value : JSON.stringify(value);
+  // Walk code points by index (same sequence as string iteration) without allocating per-character strings.
+  for (let i = 0, n = text.length; i < n; i++) {
+    let c = text.charCodeAt(i);
+    if (c >= 0xd800 && c <= 0xdbff && i + 1 < n) {
+      const low = text.charCodeAt(i + 1);
+      if (low >= 0xdc00 && low <= 0xdfff) { c = (c - 0xd800) * 0x400 + (low - 0xdc00) + 0x10000; i++; }
+    }
+    h ^= c; h = Math.imul(h, 16777619);
+  }
   return (h >>> 0).toString(16).padStart(8, '0');
 }
 export const randomAt = (...parts) => parseInt(hash(parts), 16) / 4294967296;

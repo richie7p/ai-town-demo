@@ -325,7 +325,9 @@ export function createTownScene(host,{onSelect=()=>{},onCameraChange=()=>{},onEx
       this.updateVisitor(delta);if(this.bubbles.some(b=>b.actor.moving||b.actor.transitioning))this.layoutBubbles();notifyCamera();
       // Rendered positions are exposed for playback/accessibility diagnostics,
       // never read by the simulation or used to determine research outcomes.
-      if(this.built)this.game.canvas.dataset.residentStates=JSON.stringify([...this.characters.values()].map(a=>({id:a.id,x:Math.round(a.container.x),y:Math.round(a.container.y),offset:Math.round(a.sprite.y),scale:a.sprite.scaleX,frame:Number(a.sprite.frame.name),moving:a.moving,transitioning:a.transitioning,seated:a.seated})));
+      // Written only when a resident actually changed: an attribute write per animation frame
+      // would invalidate the canvas element's style sixty times a second.
+      if(this.built){const states=JSON.stringify([...this.characters.values()].map(a=>({id:a.id,x:Math.round(a.container.x),y:Math.round(a.container.y),offset:Math.round(a.sprite.y),scale:a.sprite.scaleX,frame:Number(a.sprite.frame.name),moving:a.moving,transitioning:a.transitioning,seated:a.seated})));if(states!==this.residentStates){this.residentStates=states;this.game.canvas.dataset.residentStates=states;}}
     }
   }
   try{

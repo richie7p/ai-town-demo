@@ -20,7 +20,16 @@ const kinds = {talk:'交談',reply:'回覆',invite:'邀請合作',accept:'接受
 let state = createWorld(), frames = [viewFrame(state)], viewed = 0, selected = 'A01', activeTab = 'now';
 let timer = null, busy = false, worker = null, toastTimer;
 const frame = () => frames[viewed];
-const pastEvents = () => state.events.filter(event => event.tick <= viewed);
+// Several panels query the same prefix of the log per render; compute it once per world position.
+let pastCache = { events: null, viewed: -1, list: [] };
+const pastEvents = () => {
+  if (pastCache.events !== state.events || pastCache.viewed !== viewed) pastCache = { events: state.events, viewed, list: state.events.filter(event => event.tick <= viewed) };
+  return pastCache.list;
+};
+// Skip DOM writes whose content is unchanged, so stepping does not rebuild panels (and their portraits) needlessly.
+const renderedHTML = new WeakMap();
+function setHTML(el, html) { if (renderedHTML.get(el) === html) return; renderedHTML.set(el, html); el.innerHTML = html; }
+function setText(id, text) { const el = $(id), value = String(text); if (el.textContent !== value) el.textContent = value; }
 const actor = id => frame().agents.find(a => a.id === id);
 let cameraFollowing = false, exploring = false, inspectedObject = null;
 const scene = createTownScene($('town-stage'), {
@@ -127,7 +136,11 @@ function renderResidents(current) {
     const el = $('resident-'+a.id), p = current.trace?.proposals.find(p => p.actor === a.id);
     el.classList.toggle('selected',a.id === selected); el.setAttribute('aria-pressed', String(a.id === selected));
     el.setAttribute('aria-label',`${a.name}，${ZONES[a.zone].name}，${p ? ACTION_NAMES[p.action] : '準備開始'}`);
-    el.innerHTML = `<div class="mini-portrait">${portrait(a)}</div><strong>${esc(a.name)}</strong><small>${p ? ACTION_NAMES[p.action] : ZONES[a.zone].name}</small>`;
+    // The portrait and name only change with a new town; each step updates just the activity label.
+    const identity = `<div class="mini-portrait">${portrait(a)}</div><strong>${esc(a.name)}</strong><small></small>`;
+    if (renderedHTML.get(el) !== identity) { renderedHTML.set(el, identity); el.innerHTML = identity; }
+    const label = p ? ACTION_NAMES[p.action] : ZONES[a.zone].name;
+    if (el.lastElementChild.textContent !== label) el.lastElementChild.textContent = label;
   }
 }
 function renderAgent(current) {
@@ -135,52 +148,74 @@ function renderAgent(current) {
   const events = pastEvents(), result = p && events.filter(e => e.proposalId === p.id), failure = result?.find(e => failureKinds.includes(e.type));
   const held = current.equipment.find(e => e.owner === selected);
   $('agent-zone').textContent = ZONES[a.zone].name;
-  $('agent-profile').innerHTML = `<div class="agent-profile"><div class="portrait">${portrait(a)}</div><div><h2>${esc(a.name)}<small>${a.id}</small></h2><p>${esc(a.interests)}</p></div></div><p class="agent-style">${esc(a.style)}</p>`;
+  setHTML($('agent-profile'), `<div class="agent-profile"><div class="portrait">${portrait(a)}</div><div><h2>${esc(a.name)}<small>${a.id}</small></h2><p>${esc(a.interests)}</p></div></div><p class="agent-style">${esc(a.style)}</p>`);
   if (activeTab === 'now') {
     const recent = events.filter(e => e.participants.includes(selected) && lifeKinds.includes(e.type)).slice(-3).reverse();
-    $('agent-detail').innerHTML = `<div class="detail-kicker">${current.tick ? `第 ${dayOf(current.tick)} 天 · 時段 ${slotOf(current.tick)} 的提議` : '新的一天，還有很多可能'}</div><h3 class="current-action">${p ? ACTION_NAMES[p.action]+(p.target ? ' · '+esc(actor(p.target)?.name ?? p.target) : '') : '準備開始今天的生活'}</h3><p class="thought">${p ? esc(p.text || (p.destination ? `前往${(ZONES[p.destination]?.name ?? p.destination)}` : '依目前狀態安排自己的活動。')) : '點選「開始生活」，看看誰會先出門，又會遇見誰。'}</p>${p ? `<div class="outcome ${failure ? 'failed' : ''}"><span class="status-dot"></span><span>${esc(failure?.reason || result?.find(e => !['borrow_attempt'].includes(e.type))?.text || '本步已結算')}</span></div>` : ''}<div class="equipment-info">${held ? `持有${held.type === 'tools' ? '製作工具' : '攝影設備'} · ${held.usableFrom > current.tick ? '下一時段可用' : '可於下一步使用'}<br>於第 ${dayOf(held.until)} 天時段 ${slotOf(held.until)} 結束歸還` : '目前未持有設備，可自由安排下一步。'}</div>${recent.length ? '<h4 class="mini-heading">最近的小事</h4>'+recent.map(e => `<div class="recent-line"><small>第 ${dayOf(e.tick)} 天 · ${kinds[e.type]}</small><button data-event="${e.id}">${esc(e.text)}</button></div>`).join('') : ''}`;
+    setHTML($('agent-detail'), `<div class="detail-kicker">${current.tick ? `第 ${dayOf(current.tick)} 天 · 時段 ${slotOf(current.tick)} 的提議` : '新的一天，還有很多可能'}</div><h3 class="current-action">${p ? ACTION_NAMES[p.action]+(p.target ? ' · '+esc(actor(p.target)?.name ?? p.target) : '') : '準備開始今天的生活'}</h3><p class="thought">${p ? esc(p.text || (p.destination ? `前往${(ZONES[p.destination]?.name ?? p.destination)}` : '依目前狀態安排自己的活動。')) : '點選「開始生活」，看看誰會先出門，又會遇見誰。'}</p>${p ? `<div class="outcome ${failure ? 'failed' : ''}"><span class="status-dot"></span><span>${esc(failure?.reason || result?.find(e => !['borrow_attempt'].includes(e.type))?.text || '本步已結算')}</span></div>` : ''}<div class="equipment-info">${held ? `持有${held.type === 'tools' ? '製作工具' : '攝影設備'} · ${held.usableFrom > current.tick ? '下一時段可用' : '可於下一步使用'}<br>於第 ${dayOf(held.until)} 天時段 ${slotOf(held.until)} 結束歸還` : '目前未持有設備，可自由安排下一步。'}</div>${recent.length ? '<h4 class="mini-heading">最近的小事</h4>'+recent.map(e => `<div class="recent-line"><small>第 ${dayOf(e.tick)} 天 · ${kinds[e.type]}</small><button data-event="${e.id}">${esc(e.text)}</button></div>`).join('') : ''}`);
   } else if (activeTab === 'memory') {
-    $('agent-detail').innerHTML = `<p class="memory-intro">此步決策前實際取得的事件。${o ? `當時位於${ZONES[o.actor.zone].name}，共 ${o.provided.length} 筆。` : '尚未產生第一份觀察。'}<br>綠邊表示這一步的規則策略有引用，點選可查來源。</p>${o?.provided.length ? o.provided.map(m => `<button class="memory-card ${p.citedMemoryIds.includes(m.id) ? 'cited' : ''}" data-event="${esc(m.id)}"><span>D${m.day} · 時段 ${slotOf(m.tick)} · ${m.score === null ? '近期觀察' : '較早記憶'}${m.day < dayOf(current.tick) ? ' · 跨日' : ''}</span>${esc(m.text)}${p.citedMemoryIds.includes(m.id) ? '<br><em>本步已引用</em>' : ''}</button>`).join('') : '<div class="empty"><span class="empty-icon">▤</span>生活開始後，記憶也會慢慢累積。</div>'}<p class="memory-intro">${o ? `約 ${o.estimatedTokens} tokens${o.truncated ? '，已依容量截取' : ''}。` : ''}容量為近似估算。尚未接入模型反思；引用不等於因果證據。</p>`;
+    setHTML($('agent-detail'), `<p class="memory-intro">此步決策前實際取得的事件。${o ? `當時位於${ZONES[o.actor.zone].name}，共 ${o.provided.length} 筆。` : '尚未產生第一份觀察。'}<br>綠邊表示這一步的規則策略有引用，點選可查來源。</p>${o?.provided.length ? o.provided.map(m => `<button class="memory-card ${p.citedMemoryIds.includes(m.id) ? 'cited' : ''}" data-event="${esc(m.id)}"><span>D${m.day} · 時段 ${slotOf(m.tick)} · ${m.score === null ? '近期觀察' : '較早記憶'}${m.day < dayOf(current.tick) ? ' · 跨日' : ''}</span>${esc(m.text)}${p.citedMemoryIds.includes(m.id) ? '<br><em>本步已引用</em>' : ''}</button>`).join('') : '<div class="empty"><span class="empty-icon">▤</span>生活開始後，記憶也會慢慢累積。</div>'}<p class="memory-intro">${o ? `約 ${o.estimatedTokens} tokens${o.truncated ? '，已依容量截取' : ''}。` : ''}容量為近似估算。尚未接入模型反思；引用不等於因果證據。</p>`);
   } else {
     const dyads = current.metrics.dyads.filter(d => d.allDays.length && [d.a,d.b].includes(selected)).sort((a,b) => b.allDays.length-a.allDays.length || a.key.localeCompare(b.key));
-    $('agent-detail').innerHTML = '<p class="memory-intro">截至這個時段，已經留下有效回覆或完成合作的交集。互動日數不代表友誼。</p>'+(dyads.length ? dyads.map(d => {const other=actor(d.a===selected ? d.b : d.a); return `<button class="connection-row" data-pair="${d.key}"><span class="mini-portrait">${portrait(other)}</span><span><strong>${esc(other.name)}</strong><small>${d.allDays.map(day => `D${day}`).join(' · ')}</small></span><span>${d.allDays.length} 日 ↗</span></button>`;}).join('') : '<div class="empty"><span class="empty-icon">↔</span>還沒有完成的互動。<br>先看看大家今天會去哪裡。</div>');
+    setHTML($('agent-detail'), '<p class="memory-intro">截至這個時段，已經留下有效回覆或完成合作的交集。互動日數不代表友誼。</p>'+(dyads.length ? dyads.map(d => {const other=actor(d.a===selected ? d.b : d.a); return `<button class="connection-row" data-pair="${d.key}"><span class="mini-portrait">${portrait(other)}</span><span><strong>${esc(other.name)}</strong><small>${d.allDays.map(day => `D${day}`).join(' · ')}</small></span><span>${d.allDays.length} 日 ↗</span></button>`;}).join('') : '<div class="empty"><span class="empty-icon">↔</span>還沒有完成的互動。<br>先看看大家今天會去哪裡。</div>'));
   }
 }
+// Journal rows are immutable per event, so each is built once and reused; a step only inserts the
+// new rows and drops the oldest instead of re-parsing sixty rows and their portraits.
+let eventRows = new Map(), eventRowsWorld = null, eventListKey = null;
+function eventRow(e) {
+  let row = eventRows.get(e.id);
+  if (!row) {
+    const a = actor(e.participants[0]), template = document.createElement('template');
+    template.innerHTML = `<button class="event-row" data-event="${e.id}"><span class="event-time">DAY ${String(dayOf(e.tick)).padStart(2,'0')}<small>時段 ${String(slotOf(e.tick)).padStart(2,'0')}</small></span><span class="event-portrait">${a ? portrait(a) : ''}</span><span class="event-body"><strong>${esc(a?.name ?? '小鎮')}</strong><span class="event-tag">${kinds[e.type] || esc(e.type)}</span><p>${esc(e.text)}</p></span><span class="event-arrow">↗</span></button>`;
+    row = template.content.firstElementChild; eventRows.set(e.id, row);
+  }
+  return row;
+}
 function renderEvents() {
-  const filter = $('event-filter').value;
+  const filter = $('event-filter').value, list = $('events');
   const pool = pastEvents().filter(e => filter === 'all' || (filter === 'life' ? lifeKinds : filter === 'social' ? socialKinds : filter === 'equipment' ? equipmentKinds : failureKinds).includes(e.type));
   const events = pool.slice(-60).reverse();
-  $('events').innerHTML = events.length ? events.map(e => {
-    const a = actor(e.participants[0]);
-    return `<button class="event-row" data-event="${e.id}"><span class="event-time">DAY ${String(dayOf(e.tick)).padStart(2,'0')}<small>時段 ${String(slotOf(e.tick)).padStart(2,'0')}</small></span><span class="event-portrait">${a ? portrait(a) : ''}</span><span class="event-body"><strong>${esc(a?.name ?? '小鎮')}</strong><span class="event-tag">${kinds[e.type] || esc(e.type)}</span><p>${esc(e.text)}</p></span><span class="event-arrow">↗</span></button>`;
-  }).join('') : '<div class="empty"><span class="empty-icon">☷</span>還沒有這一類片段。<br>開始生活，讓故事慢慢發生。</div>';
-  $('events-foot').textContent = `截至時段 ${viewed} · 此類共 ${pool.length} 筆，顯示最近 ${events.length} 筆。點選可回查事件。`;
+  // Rows show resident names and portraits, which belong to one town; a new or imported town starts a new cache.
+  if (eventRowsWorld !== frames[0]) { eventRowsWorld = frames[0]; eventRows = new Map(); eventListKey = null; }
+  const key = events.map(e => e.id).join();
+  if (key !== eventListKey) {
+    if (!events.length) list.innerHTML = '<div class="empty"><span class="empty-icon">☷</span>還沒有這一類片段。<br>開始生活，讓故事慢慢發生。</div>';
+    else {
+      if (!eventListKey) list.replaceChildren();
+      let cursor = list.firstElementChild;
+      for (const row of events.map(eventRow)) { if (row === cursor) cursor = cursor.nextElementSibling; else list.insertBefore(row, cursor); }
+      while (cursor) { const next = cursor.nextElementSibling; cursor.remove(); cursor = next; }
+      if (eventRows.size > 480) { const shown = new Set(events.map(e => e.id)); for (const id of eventRows.keys()) if (!shown.has(id)) eventRows.delete(id); }
+    }
+    eventListKey = key;
+  }
+  setText('events-foot', `截至時段 ${viewed} · 此類共 ${pool.length} 筆，顯示最近 ${events.length} 筆。點選可回查事件。`);
 }
 function renderNetwork(current) {
   const points = Object.fromEntries(current.agents.map((a,i) => [a.id,{x:180+114*Math.cos(i*Math.PI/4-Math.PI/2),y:130+90*Math.sin(i*Math.PI/4-Math.PI/2)}]));
   const dyads = current.metrics.dyads.filter(d => d.allDays.length);
-  $('network').innerHTML = '<circle cx="180" cy="130" r="91" fill="#eef0e5" stroke="#d9e1cb" stroke-dasharray="3 6"/>'+dyads.map(d => {const a=points[d.a],b=points[d.b];return `<g data-pair="${d.key}" role="button" tabindex="0" aria-label="${esc(actor(d.a).name)}與${esc(actor(d.b).name)}，${d.allDays.length}個互動日"><line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="transparent" stroke-width="14"/><line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="${d.qualifies ? '#659259' : '#aebf98'}" stroke-width="${Math.min(4,1+d.allDays.length/2)}" opacity=".7"/></g>`;}).join('')+current.agents.map(a => `<g data-agent="${a.id}" role="button" tabindex="0" aria-label="查看${esc(a.name)}"><circle cx="${points[a.id].x}" cy="${points[a.id].y}" r="17" fill="${a.color}" stroke="${a.id===selected ? '#d3b86e' : '#fafbf4'}" stroke-width="3"/><text x="${points[a.id].x}" y="${points[a.id].y+4}" text-anchor="middle" fill="white" font-size="11">${esc(a.name.slice(-1))}</text><text x="${points[a.id].x}" y="${points[a.id].y+32}" text-anchor="middle" fill="#7f9073" font-size="10">${esc(a.name)}</text></g>`).join('');
-  $('pair-links').innerHTML = dyads.length ? dyads.sort((a,b)=>b.allDays.length-a.allDays.length).map(d => `<button data-pair="${d.key}">${esc(actor(d.a).name)} × ${esc(actor(d.b).name)} · ${d.allDays.length} 日</button>`).join('') : '<p class="memory-intro">交集會隨著生活逐步出現。</p>';
-  $('network-stats').innerHTML = `<div><strong>${dyads.length}</strong>有過交集的組合</div><div><strong>${current.metrics.completedCooperations}</strong>已完成合作</div>`;
+  setHTML($('network'), '<circle cx="180" cy="130" r="91" fill="#eef0e5" stroke="#d9e1cb" stroke-dasharray="3 6"/>'+dyads.map(d => {const a=points[d.a],b=points[d.b];return `<g data-pair="${d.key}" role="button" tabindex="0" aria-label="${esc(actor(d.a).name)}與${esc(actor(d.b).name)}，${d.allDays.length}個互動日"><line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="transparent" stroke-width="14"/><line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="${d.qualifies ? '#659259' : '#aebf98'}" stroke-width="${Math.min(4,1+d.allDays.length/2)}" opacity=".7"/></g>`;}).join('')+current.agents.map(a => `<g data-agent="${a.id}" role="button" tabindex="0" aria-label="查看${esc(a.name)}"><circle cx="${points[a.id].x}" cy="${points[a.id].y}" r="17" fill="${a.color}" stroke="${a.id===selected ? '#d3b86e' : '#fafbf4'}" stroke-width="3"/><text x="${points[a.id].x}" y="${points[a.id].y+4}" text-anchor="middle" fill="white" font-size="11">${esc(a.name.slice(-1))}</text><text x="${points[a.id].x}" y="${points[a.id].y+32}" text-anchor="middle" fill="#7f9073" font-size="10">${esc(a.name)}</text></g>`).join(''));
+  setHTML($('pair-links'), dyads.length ? dyads.sort((a,b)=>b.allDays.length-a.allDays.length).map(d => `<button data-pair="${d.key}">${esc(actor(d.a).name)} × ${esc(actor(d.b).name)} · ${d.allDays.length} 日</button>`).join('') : '<p class="memory-intro">交集會隨著生活逐步出現。</p>');
+  setHTML($('network-stats'), `<div><strong>${dyads.length}</strong>有過交集的組合</div><div><strong>${current.metrics.completedCooperations}</strong>已完成合作</div>`);
 }
 function render({animate=false} = {}) {
   const current=frame(),m=current.metrics;
-  $('day-label').textContent = `第 ${String(dayOf(current.tick)).padStart(2,'0')} 天`;
+  setText('day-label', `第 ${String(dayOf(current.tick)).padStart(2,'0')} 天`);
   const slot=slotOf(current.tick);
-  $('phase-label').textContent = current.tick ? ['清晨，慢慢醒來','上午，各自忙碌','午後，走走聊聊','傍晚，準備休息'][Math.floor((slot-1)/3)]+` · ${slot}/12` : '清晨，準備出門';
-  $('condition-label').textContent = `${current.config.capacity===8 ? 'A8' : 'B'+current.config.capacity} · 每類 ${current.config.capacity} 件設備`;
-  $('timeline-label').textContent = `第 ${dayOf(current.tick)} 天 · ${current.tick ? slot : 0} / 12`;
-  $('timeline-total').textContent = `${current.tick} / 120`;
+  setText('phase-label', current.tick ? ['清晨，慢慢醒來','上午，各自忙碌','午後，走走聊聊','傍晚，準備休息'][Math.floor((slot-1)/3)]+` · ${slot}/12` : '清晨，準備出門');
+  setText('condition-label', `${current.config.capacity===8 ? 'A8' : 'B'+current.config.capacity} · 每類 ${current.config.capacity} 件設備`);
+  setText('timeline-label', `第 ${dayOf(current.tick)} 天 · ${current.tick ? slot : 0} / 12`);
+  setText('timeline-total', `${current.tick} / 120`);
   $('seek').max=state.tick; $('seek').value=viewed;
-  $('view-mode').textContent = busy ? '正在處理' : viewed<state.tick ? '歷史回放' : state.tick===120 ? '十日完成' : state.tick ? '最新進度' : '尚未開始';
+  setText('view-mode', busy ? '正在處理' : viewed<state.tick ? '歷史回放' : state.tick===120 ? '十日完成' : state.tick ? '最新進度' : '尚未開始');
   $('latest').hidden = viewed===state.tick;
   renderResidents(current); renderAgent(current); renderEvents(); renderNetwork(current); renderObject();
-  $('progress-value').textContent = `${current.tick} / 120`;
-  $('interaction-value').textContent = m.interactionDays;
-  $('y-value').textContent = m.final ? percent(m.y) : '—';
-  $('y-detail').textContent = m.final ? `${m.qualifiedLinks} / 28 對 · 工程示範值` : '尚未完成十日，不顯示最終指標';
-  $('core-value').textContent = m.final ? m.persistentCores.length : '—';
-  $('research-detail').textContent = `設備借用：${m.borrowAttempts} 次合法嘗試、${m.capacityFailures} 次容量失敗（${percent(m.capacityFailureRate)}）。合作完成率：${percent(m.cooperationRate)}，分母 ${m.observedInvitations}，尚未到期 ${m.rightCensoredInvitations}。`+(m.final ? ` 連結門檻 2／3／4 日：${[2,3,4].map(n=>percent(m.sensitivity[n])).join('／')}。` : '')+' 全部數值只使用目前回放位置之前的事件。';
+  setText('progress-value', `${current.tick} / 120`);
+  setText('interaction-value', m.interactionDays);
+  setText('y-value', m.final ? percent(m.y) : '—');
+  setText('y-detail', m.final ? `${m.qualifiedLinks} / 28 對 · 工程示範值` : '尚未完成十日，不顯示最終指標');
+  setText('core-value', m.final ? m.persistentCores.length : '—');
+  setText('research-detail', `設備借用：${m.borrowAttempts} 次合法嘗試、${m.capacityFailures} 次容量失敗（${percent(m.capacityFailureRate)}）。合作完成率：${percent(m.cooperationRate)}，分母 ${m.observedInvitations}，尚未到期 ${m.rightCensoredInvitations}。`+(m.final ? ` 連結門檻 2／3／4 日：${[2,3,4].map(n=>percent(m.sensitivity[n])).join('／')}。` : '')+' 全部數值只使用目前回放位置之前的事件。');
   controls(); scene.render(current,{selected,playing:!!timer,duration:Number($('speed').value)*0.45,reducedMotion:reduced.matches,animate});
 }
 function evidenceCard(e) {

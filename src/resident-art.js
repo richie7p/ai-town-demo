@@ -39,9 +39,16 @@ function line(c,a,b,color,width=1){
   let x=Math.round(a[0]),y=Math.round(a[1]);const ex=Math.round(b[0]),ey=Math.round(b[1]),dx=Math.abs(ex-x),dy=-Math.abs(ey-y),sx=x<ex?1:-1,sy=y<ey?1:-1;let error=dx+dy;
   for(;;){rect(c,x,y,width,width,color);if(x===ex&&y===ey)break;const e=2*error;if(e>=dy){error+=dy;x+=sx;}if(e<=dx){error+=dx;y+=sy;}}
 }
+// A resident's colours are fixed for a town, while the atlas asks for them once per frame.
+const paletteCache=new Map();
 function palette(agent){
-  const p=PEOPLE[agent.name]??FALLBACK,main=/^#[a-f0-9]{6}$/i.test(agent.color)?agent.color:'#367760';
-  return {...p,main,light:shade(main,26),deep:shade(main,-27),skinLight:shade(p.skin,20),skinShadow:shade(p.skin,-23),hairLight:shade(p.hair,29),hairDark:shade(p.hair,-14)};
+  const key=`${agent.name}|${agent.color}`;let colors=paletteCache.get(key);
+  if(!colors){
+    const p=PEOPLE[agent.name]??FALLBACK,main=/^#[a-f0-9]{6}$/i.test(agent.color)?agent.color:'#367760';
+    colors=Object.freeze({...p,main,light:shade(main,26),deep:shade(main,-27),skinLight:shade(p.skin,20),skinShadow:shade(p.skin,-23),hairLight:shade(p.hair,29),hairDark:shade(p.hair,-14)});
+    if(paletteCache.size<64)paletteCache.set(key,colors);
+  }
+  return colors;
 }
 function identity(agent){const p=palette(agent);return `resident-detail-v4-${p.id}-${p.main.slice(1).toLowerCase()}`;}
 function poseFor(frame){
@@ -269,9 +276,17 @@ function hairStyle(c,p,side,back){
       for(const [x,y]of [[5,10],[7,5],[11,2],[16,2],[21,4],[24,8],[25,13],[6,15],[24,18]]){polygon(c,[[x+1,y],[x+4,y],[x+5,y+2],[x+4,y+4],[x+1,y+4],[x,y+2]],p.hair);rect(c,x+1,y+1,2,1,p.hairLight);}break;
   }
 }
+// One logical-grid scratch tile serves every frame; resetting it gives the same blank,
+// default-state surface as a new canvas without allocating 192 canvases per resident.
+let tile=null;
+function scratchTile(){
+  if(!tile)return tile=canvas(32,48);
+  const context=tile.getContext('2d');if(context.reset)context.reset();else tile.width=32;
+  return tile;
+}
 function drawResident(c,agent,frame){
   const p=palette(agent),pose=poseFor(frame),side=['left','right'].includes(pose.direction),back=pose.direction==='up';
-  const tile=canvas(32,48),t=tile.getContext('2d');t.imageSmoothingEnabled=false;t.save();
+  const grid=scratchTile(),t=grid.getContext('2d');t.imageSmoothingEnabled=false;t.save();
   if(pose.direction==='right'){t.translate(32,0);t.scale(-1,1);}
   // Seat motion lowers the torso and head while knees fold above planted feet.
   // It does not squash the sprite or move its ground anchor.
@@ -283,7 +298,7 @@ function drawResident(c,agent,frame){
     else if(pose.motion==='talk'&&[3,4].includes(pose.phase))t.translate(side?-1:0,1);
   }else if(pose.motion==='walk'&&pose.phase%2)t.translate(0,-1);
   hairBack(t,p,side);torso(t,p,side,back);head(t,p,pose,side,back);arms(t,p,pose,side,back);t.restore();t.restore();
-  c.imageSmoothingEnabled=false;c.drawImage(tile,0,0,64,96);
+  c.imageSmoothingEnabled=false;c.drawImage(grid,0,0,64,96);
 }
 /** Preserve the first 48 frames and add natural motion clips in the same atlas. */
 export function registerResidentAssets(scene,agents){

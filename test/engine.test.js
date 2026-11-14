@@ -5,7 +5,7 @@ import { measure } from '../src/metrics.js';
 import { observe, jaccard } from '../src/memory.js';
 import { runWorld, propose, comparePair } from '../src/policy.js';
 import { exportRun, replayRun } from '../src/replay.js';
-import { pairKey } from '../src/config.js';
+import { pairKey, dayOf, hash } from '../src/config.js';
 
 const p = (actor, action, more = {}) => ({ actor, action, ...more });
 const world = () => { const s = createWorld(); s.agents.forEach(a => { a.zone = 'workshop'; }); return s; };
@@ -230,4 +230,37 @@ test('multiple seeded runs preserve one-item-per-person and visible, earlier mem
     }
     assert.ok(measure(s).y >= 0 && measure(s).y <= 1);
   }
+});
+
+test('single-pass memory retrieval matches the full filter, score and sort it replaced', () => {
+  const reference = (state, id) => {
+    const o = observe(state, id), tick = state.tick + 1;
+    const visible = state.events.filter(e => e.visibleTo.includes(id));
+    const recent = visible.filter(e => tick - e.tick <= 2).sort((a, b) => b.tick - a.tick || a.id.localeCompare(b.id));
+    const older = visible.filter(e => tick - e.tick > 2).map(e => ({ ...e, score: 0.7 * jaccard(o.queryTags, e.tags) + 0.3 * 2 ** (-(tick - e.tick) / 12) }))
+      .sort((a, b) => b.score - a.score || b.tick - a.tick || a.id.localeCompare(b.id)).slice(0, 6);
+    let tokens = 0;
+    const provided = [...recent, ...older].map(e => ({ id: e.id, tick: e.tick, day: dayOf(e.tick), kind: e.type, text: e.text, tags: e.tags, sourceKind: 'observed_event', score: e.score ?? null }))
+      .filter(record => { const cost = Math.ceil(new TextEncoder().encode(JSON.stringify(record)).length / 3); if (tokens + cost > 900) return false; tokens += cost; return true; });
+    return { provided, estimatedTokens: tokens, truncated: provided.length < recent.length + older.length };
+  };
+  let compared = 0, truncated = 0;
+  runWorld({ seed: 4242, capacity: 2 }, state => {
+    if (state.tick % 7 && state.tick < 118) return;
+    for (const { id } of state.agents) {
+      const o = observe(state, id), expected = reference(state, id);
+      assert.deepEqual(o.provided, expected.provided);
+      assert.equal(o.estimatedTokens, expected.estimatedTokens);
+      assert.equal(o.truncated, expected.truncated);
+      assert.deepEqual(o.providedIds, expected.provided.map(m => m.id));
+      compared++; truncated += o.truncated;
+    }
+  });
+  assert.ok(compared >= 144 && truncated > 0, 'the comparison must include observations that hit the capacity limit');
+});
+
+test('checksum walks code points exactly like string iteration, including unpaired surrogates', () => {
+  const reference = text => { let h = 2166136261; for (const c of text) { h ^= c.codePointAt(0); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16).padStart(8, '0'); };
+  for (const text of ['', 'A01', '小鎮生活', '相機📷與工具🛠️', '\ud83d', '\ude00\ud83d', 'a\ud83dz', '\ud800𐀀', '􏿿']) assert.equal(hash(text), reference(text), JSON.stringify(text));
+  assert.equal(hash({ a: '居民', b: [1, 2] }), reference(JSON.stringify({ a: '居民', b: [1, 2] })));
 });
