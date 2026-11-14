@@ -5,15 +5,24 @@ import { propose } from '../src/policy.js';
 import { viewFrame } from '../src/presentation.js';
 import { isWalkable, TILE_SIZE } from '../src/town-map.js';
 import {
-  WORLD_SIZE, ZONE_CENTERS, characterPosition, presentationPath, samplePath,
-  directionBetween, characterPresentation, visibleUtterances,
-  isContinuousFrame, clampZoom,
+  WORLD_SIZE,
+  ZONE_CENTERS,
+  characterPosition,
+  presentationPath,
+  samplePath,
+  directionBetween,
+  characterPresentation,
+  visibleUtterances,
+  isContinuousFrame,
+  clampZoom,
 } from '../src/town-view-model.js';
 
 const action = (actor, action, more = {}) => ({ actor, action, ...more });
 function inZone(zone = 'workshop') {
   const state = createWorld();
-  state.agents.forEach(agent => { agent.zone = zone; });
+  state.agents.forEach(agent => {
+    agent.zone = zone;
+  });
   return state;
 }
 function assertPoint(point) {
@@ -43,9 +52,11 @@ function assertWalkPath(path) {
 // Phaser renders these values in the browser. Testing real engine frames here
 // keeps the display/research boundary verifiable without a mock game engine.
 test('the full 10-day run has finite display geometry and presentation never changes frames', () => {
-  let state = createWorld(), previous;
+  let state = createWorld(),
+    previous;
   for (let tick = 0; tick <= 120; tick++) {
-    const frame = viewFrame(state), before = JSON.stringify(frame);
+    const frame = viewFrame(state),
+      before = JSON.stringify(frame);
     for (const agent of frame.agents) {
       const position = characterPosition(agent, frame);
       assertPoint(position);
@@ -67,7 +78,11 @@ test('the full 10-day run has finite display geometry and presentation never cha
       assert.equal(event.tick, tick);
       assert.equal(event.success, true);
     }
-    assert.equal(new Set(frame.agents.map(agent => characterPosition(agent, frame).join(','))).size, frame.agents.length, `residents overlap at tick ${tick}`);
+    assert.equal(
+      new Set(frame.agents.map(agent => characterPosition(agent, frame).join(','))).size,
+      frame.agents.length,
+      `residents overlap at tick ${tick}`,
+    );
     assert.equal(JSON.stringify(frame), before, `display helpers changed tick ${tick}`);
     previous = frame;
     if (tick < 120) state = step(state, propose(state));
@@ -77,13 +92,17 @@ test('the full 10-day run has finite display geometry and presentation never cha
 test('only delivered utterances become bubbles or talking poses, including when replaying a past step', () => {
   const initial = inZone('home');
   initial.agents.find(a => a.id === 'A03').zone = 'workshop';
-  const actual = '這是真正送出的對話', rejected = '這句未送達不可展示';
+  const actual = '這是真正送出的對話',
+    rejected = '這句未送達不可展示';
   const spoken = step(initial, [
     action('A01', 'talk', { target: 'A02', text: actual }),
     action('A03', 'talk', { target: 'A04', text: rejected }),
   ]);
   const past = viewFrame(spoken);
-  assert.deepEqual(visibleUtterances(past, 'A01').map(e => e.text), [actual]);
+  assert.deepEqual(
+    visibleUtterances(past, 'A01').map(e => e.text),
+    [actual],
+  );
   assert.equal(characterPresentation(past, 'A01').pose, 'talk');
   assert.equal(characterPresentation(past, 'A01').target, 'A02');
   assert.equal(characterPresentation(past, 'A03').failed, true);
@@ -91,37 +110,58 @@ test('only delivered utterances become bubbles or talking poses, including when 
   assert.equal(characterPresentation(past, 'A03').delivered, undefined);
 
   const message = spoken.messages.find(m => m.from === 'A01');
-  const replied = step(spoken, [action('A02', 'reply', {
-    target: 'A01', replyTo: message.id, conversationId: message.conversationId, text: '現在才回覆',
-  })]);
+  const replied = step(spoken, [
+    action('A02', 'reply', {
+      target: 'A01',
+      replyTo: message.id,
+      conversationId: message.conversationId,
+      text: '現在才回覆',
+    }),
+  ]);
   const current = viewFrame(replied);
-  assert.deepEqual(visibleUtterances(current, 'A02').map(e => e.text), ['現在才回覆']);
+  assert.deepEqual(
+    visibleUtterances(current, 'A02').map(e => e.text),
+    ['現在才回覆'],
+  );
   assert.deepEqual(visibleUtterances(viewFrame(step(replied)), 'A01'), []);
-  assert.deepEqual(visibleUtterances(past, 'A01').map(e => e.text), [actual]);
+  assert.deepEqual(
+    visibleUtterances(past, 'A01').map(e => e.text),
+    [actual],
+  );
 });
 
 test('all eight residents can enter and leave every district without crossing walls or furniture', () => {
   const zones = ['home', 'workshop', 'plaza', 'studio'];
   const frames = Object.fromEntries(zones.map(zone => [zone, viewFrame(inZone(zone))]));
-  for (const origin of zones) for (const destination of zones) {
-    const fromFrame = frames[origin], toFrame = frames[destination];
-    for (const [index, agent] of fromFrame.agents.entries()) {
-      const from = characterPosition(agent, fromFrame);
-      const to = characterPosition(toFrame.agents[index], toFrame);
-      const path = presentationPath(from, to, origin, destination);
-      const before = JSON.stringify(path);
-      assertWalkPath(path);
-      assert.deepEqual(samplePath(path, 0), from);
-      assert.deepEqual(samplePath(path, 1), to);
-      assert.equal(JSON.stringify(path), before);
+  for (const origin of zones)
+    for (const destination of zones) {
+      const fromFrame = frames[origin],
+        toFrame = frames[destination];
+      for (const [index, agent] of fromFrame.agents.entries()) {
+        const from = characterPosition(agent, fromFrame);
+        const to = characterPosition(toFrame.agents[index], toFrame);
+        const path = presentationPath(from, to, origin, destination);
+        const before = JSON.stringify(path);
+        assertWalkPath(path);
+        assert.deepEqual(samplePath(path, 0), from);
+        assert.deepEqual(samplePath(path, 1), to);
+        assert.equal(JSON.stringify(path), before);
+      }
     }
-  }
 });
 
 test('bubble limits preserve the selected speaker without reordering source events', () => {
-  const frame = viewFrame(step(inZone(), [1, 3, 5, 7].map(i => action(`A0${i}`, 'talk', {
-    target: `A0${i + 1}`, text: `第 ${i} 位角色開口`,
-  }))));
+  const frame = viewFrame(
+    step(
+      inZone(),
+      [1, 3, 5, 7].map(i =>
+        action(`A0${i}`, 'talk', {
+          target: `A0${i + 1}`,
+          text: `第 ${i} 位角色開口`,
+        }),
+      ),
+    ),
+  );
   const before = JSON.stringify(frame.events);
   const bubbles = visibleUtterances(frame, 'A07');
   assert.equal(bubbles.length, 3);
@@ -132,7 +172,10 @@ test('bubble limits preserve the selected speaker without reordering source even
 });
 
 test('borrowing and failed actions do not animate equipment use or a blocked move', () => {
-  const borrowed = step(inZone(), ['A01', 'A02', 'A03'].map(id => action(id, 'borrow', { resourceType: 'tools' })));
+  const borrowed = step(
+    inZone(),
+    ['A01', 'A02', 'A03'].map(id => action(id, 'borrow', { resourceType: 'tools' })),
+  );
   const frame = viewFrame(borrowed);
   const failure = frame.events.find(e => e.type === 'capacity_failure');
   assert.ok(failure, 'the fixture must exhaust the two available tools');
@@ -146,14 +189,18 @@ test('borrowing and failed actions do not animate equipment use or a blocked mov
   assert.equal(justBorrowed.held.usableFrom, borrowed.tick + 1);
 
   const blocked = viewFrame(step(borrowed, [action(owner, 'move', { destination: 'studio' })]));
-  const before = frame.agents.find(a => a.id === owner), after = blocked.agents.find(a => a.id === owner);
+  const before = frame.agents.find(a => a.id === owner),
+    after = blocked.agents.find(a => a.id === owner);
   assert.equal(characterPresentation(blocked, owner).failed, true);
   assert.equal(characterPresentation(blocked, owner).pose, 'idle');
   assert.deepEqual(characterPosition(after, blocked), characterPosition(before, frame));
 });
 
 test('equipment use keeps its correct pose on the final usable tick after automatic return', () => {
-  for (const [zone, resourceType, pose] of [['workshop', 'tools', 'work'], ['studio', 'camera', 'camera']]) {
+  for (const [zone, resourceType, pose] of [
+    ['workshop', 'tools', 'work'],
+    ['studio', 'camera', 'camera'],
+  ]) {
     let state = step(inZone(zone), [action('A01', 'borrow', { resourceType })]);
     state = step(state, [action('A01', 'work')]);
     assert.equal(characterPresentation(viewFrame(state), 'A01').pose, pose);
@@ -174,7 +221,9 @@ test('a successful camera collaborator uses the camera pose; a failed join remai
     action('A01', 'borrow', { resourceType: 'camera' }),
     action('A02', 'accept', { invitationId }),
   ]);
-  const success = viewFrame(step(state, [action('A01', 'work', { invitationId }), action('A02', 'join', { invitationId })]));
+  const success = viewFrame(
+    step(state, [action('A01', 'work', { invitationId }), action('A02', 'join', { invitationId })]),
+  );
   assert.equal(characterPresentation(success, 'A01').pose, 'camera');
   assert.equal(characterPresentation(success, 'A02').held, null);
   assert.equal(characterPresentation(success, 'A02').pose, 'camera');
@@ -184,7 +233,9 @@ test('a successful camera collaborator uses the camera pose; a failed join remai
 });
 
 test('only consecutive frames from the same run animate, and camera/geometry limits stay safe', () => {
-  const initial = createWorld(), first = viewFrame(initial), second = viewFrame(step(initial));
+  const initial = createWorld(),
+    first = viewFrame(initial),
+    second = viewFrame(step(initial));
   assert.equal(isContinuousFrame(first, second), true);
   assert.equal(isContinuousFrame(undefined, first), false);
   assert.equal(isContinuousFrame(second, first), false);
@@ -198,8 +249,12 @@ test('only consecutive frames from the same run animate, and camera/geometry lim
   for (const value of [NaN, Infinity, undefined]) assert.equal(clampZoom(value), 1);
   for (const center of Object.values(ZONE_CENTERS)) assertPoint(center);
   assertPoint(samplePath([], 0.5));
-  const stationary = [[10, 20], [10, 20]];
-  for (const progress of [-1, 0, 0.5, 1, 2, NaN]) assert.deepEqual(samplePath(stationary, progress), [10, 20]);
+  const stationary = [
+    [10, 20],
+    [10, 20],
+  ];
+  for (const progress of [-1, 0, 0.5, 1, 2, NaN])
+    assert.deepEqual(samplePath(stationary, progress), [10, 20]);
   assert.equal(directionBetween([10, 20], [10, 20], 'left'), 'left');
   assert.equal(directionBetween([0, 0], [10, 0]), 'right');
   assert.equal(directionBetween([10, 0], [0, 0]), 'left');

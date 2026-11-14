@@ -9,9 +9,11 @@ self.onmessage = event => {
     if (data.type === 'compare') {
       self.postMessage({ type: 'result', pair: comparePair(data.seed, data.capacity) });
     } else if (data.type === 'finish') {
-      let state = data.state; const frames = [];
+      let state = data.state;
+      const frames = [];
       while (state.tick < 120) {
-        state = step(state, propose(state)); frames.push(viewFrame(state));
+        state = step(state, propose(state));
+        frames.push(viewFrame(state));
         if (state.tick % 12 === 0) self.postMessage({ type: 'progress', tick: state.tick });
       }
       self.postMessage({ type: 'result', state, frames });
@@ -20,5 +22,7 @@ self.onmessage = event => {
       const state = replayRun(data.data, s => frames.push(viewFrame(s)));
       self.postMessage({ type: 'result', state, frames });
     }
-  } catch (error) { self.postMessage({ type: 'error', message: error.message }); }
+  } catch (error) {
+    self.postMessage({ type: 'error', message: error.message });
+  }
 };

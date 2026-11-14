@@ -12,4 +12,17 @@ await mkdir('output', { recursive: true });
 await writeFile('output/demo-replay.json', JSON.stringify(replay, null, 2));
 const pair = comparePair(seed, capacity === 3 ? 3 : 2);
 await writeFile('output/demo-pair.json', JSON.stringify(pair, null, 2));
-console.log(JSON.stringify({ sampleType: 'synthetic-engine-demo', ticks: state.tick, events: state.events.length, metrics: measure(state), pairDeltaPP: pair.deltaPercentagePoints, replayVerified: true }, null, 2));
+console.log(
+  JSON.stringify(
+    {
+      sampleType: 'synthetic-engine-demo',
+      ticks: state.tick,
+      events: state.events.length,
+      metrics: measure(state),
+      pairDeltaPP: pair.deltaPercentagePoints,
+      replayVerified: true,
+    },
+    null,
+    2,
+  ),
+);

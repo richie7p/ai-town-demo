@@ -4,7 +4,10 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 
 test('local server serves the demo and excludes repository/private files', { timeout: 15000 }, async t => {
-  const child = spawn(process.execPath, ['server.mjs'], { env: { ...process.env, PORT: '0' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, ['server.mjs'], {
+    env: { ...process.env, PORT: '0' },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
   t.after(() => child.kill());
   const [line] = await once(child.stdout, 'data');
   const base = line.toString().match(/http:\/\/127\.0\.0\.1:\d+/)[0];
@@ -17,7 +20,7 @@ test('local server serves the demo and excludes repository/private files', { tim
   assert.equal(landscape.status, 200);
   assert.equal(landscape.headers.get('content-type'), 'image/png');
   const picture = new Uint8Array(await landscape.arrayBuffer());
-  assert.deepEqual([...picture.slice(0,8)], [137,80,78,71,13,10,26,10]);
+  assert.deepEqual([...picture.slice(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
   const phaser = await fetch(base + '/vendor/phaser.js');
   assert.equal(phaser.status, 200);
   assert.match(phaser.headers.get('content-type'), /(?:text|application)\/javascript/);
@@ -28,11 +31,19 @@ test('local server serves the demo and excludes repository/private files', { tim
   assert.equal(license.status, 200);
   assert.match(await license.text(), /MIT License/);
   for (const path of [
-    '/.git/config', '/.env', '/package.json', '/package-lock.json',
-    '/output/demo-replay.json', '/src/../../.env',
-    '/assets/private.png', '/assets/../package.json',
-    '/node_modules/phaser/package.json', '/node_modules/phaser/dist/phaser.min.js',
-    '/vendor/package.json', '/vendor/phaser.js.map', '/vendor/../node_modules/phaser/package.json',
+    '/.git/config',
+    '/.env',
+    '/package.json',
+    '/package-lock.json',
+    '/output/demo-replay.json',
+    '/src/../../.env',
+    '/assets/private.png',
+    '/assets/../package.json',
+    '/node_modules/phaser/package.json',
+    '/node_modules/phaser/dist/phaser.min.js',
+    '/vendor/package.json',
+    '/vendor/phaser.js.map',
+    '/vendor/../node_modules/phaser/package.json',
   ]) {
     assert.equal((await fetch(base + path)).status, 404, `${path} must stay private`);
   }
