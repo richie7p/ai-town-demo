@@ -9,8 +9,8 @@ import {
   isWalkable,
   nearestWalkable,
   findWalkPath,
-  activityAnchor,
 } from '../src/town-map.js';
+import { activityAnchor } from '../src/activity-anchors.js';
 
 const zones = ['home', 'workshop', 'plaza', 'studio'];
 const action = (actor, action, fields = {}) => ({ actor, action, ...fields });

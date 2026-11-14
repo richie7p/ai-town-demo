@@ -4,7 +4,8 @@ import { exportRun } from './src/replay.js';
 import { viewFrame } from './src/presentation.js';
 import { residentPortrait } from './src/resident-art.js';
 import { WORLD_SIZE } from './src/town-view-model.js';
-import { activityAnchor, createMinimapDataUrl } from './src/town-map.js';
+import { createMinimapDataUrl } from './src/town-map.js';
+import { activityAnchor } from './src/activity-anchors.js';
 import { createTownScene } from './src/town-scene.js';
 import { ZONES, dayOf, slotOf, ACTION_NAMES } from './src/config.js';
 

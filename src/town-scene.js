@@ -19,11 +19,11 @@ import {
   MAP_OBJECTS,
   isWalkable,
   findWalkPath,
-  activityAnchor,
   nearestWalkable,
   locationAt,
   createMinimapDataUrl,
 } from './town-map.js';
+import { activityAnchor } from './activity-anchors.js';
 
 const { width: W, height: H } = WORLD_SIZE;
 const VIEW_WIDTH = 1200;

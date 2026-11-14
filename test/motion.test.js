@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createWorld, step } from '../src/engine.js';
 import { viewFrame } from '../src/presentation.js';
-import { activityAnchor } from '../src/town-map.js';
+import { activityAnchor } from '../src/activity-anchors.js';
 import { characterPresentation } from '../src/town-view-model.js';
 import { RESIDENT_CLIPS, RESIDENT_FRAME_COUNT } from '../src/resident-motion.js';
 import { seatedPose, walkDuration } from '../src/character-motion.js';
