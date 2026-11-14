@@ -20,7 +20,7 @@ test('all directions have eight walking phases and complete non-looping sit clip
 
 test('a rejected equipment action while seated preserves sitting without showing equipment use', () => {
   const world = createWorld();
-  world.agents.forEach(a => (a.zone = 'home'));
+  world.agents.forEach(a => (a.zone = 'living'));
   const rested = step(world, [{ actor: 'A01', action: 'rest' }]);
   const rejected = viewFrame(step(rested, [{ actor: 'A01', action: 'borrow', resourceType: 'tools' }]));
   const presentation = characterPresentation(rejected, 'A01'),

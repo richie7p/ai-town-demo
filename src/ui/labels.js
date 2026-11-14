@@ -1,5 +1,5 @@
 // Wording shared by the page: event kinds, journal filters and time of day.
-import { TICKS_PER_DAY } from '../config.js';
+import { SLOT_TIMES } from '../config.js';
 
 /** Journal label for each event type. */
 export const EVENT_LABELS = {
@@ -23,6 +23,11 @@ export const EVENT_LABELS = {
   rest: '休息',
   walk: '散步',
   wait: '等待',
+  cook: '煮飯',
+  eat: '吃飯',
+  shower: '洗澡',
+  sleep: '睡覺',
+  exercise: '運動',
   invalid: '無效行動',
   join_failed: '未能加入',
 };
@@ -42,11 +47,18 @@ export const LIFE_KINDS = [
   'walk',
   'wait',
   'borrow',
+  'cook',
+  'eat',
+  'shower',
+  'exercise',
 ];
+/** Looking after oneself: meals, washing, exercise and sleep (including the night). */
+export const HOME_KINDS = ['cook', 'eat', 'shower', 'exercise', 'sleep', 'rest'];
 
 /** Event types shown by each journal filter (missing filter: everything). */
 export const JOURNAL_FILTERS = {
   life: LIFE_KINDS,
+  home: HOME_KINDS,
   social: [
     'talk',
     'reply',
@@ -63,9 +75,10 @@ export const JOURNAL_FILTERS = {
   failed: FAILURE_KINDS,
 };
 
-const PHASES = ['清晨，慢慢醒來', '上午，各自忙碌', '午後，走走聊聊', '傍晚，準備休息'];
-/** Time of day for a slot (1–12): four phases of three slots each. */
-export const phaseOfSlot = slot => `${PHASES[Math.floor((slot - 1) / 3)]} · ${slot}/${TICKS_PER_DAY}`;
+const PHASES = ['清晨，慢慢醒來', '上午，各自忙碌', '午後，走走聊聊', '傍晚，回家吃飯'];
+/** Time of day for a slot (1–12): the clock time and one of four phases of three slots each. */
+export const phaseOfSlot = slot => `${SLOT_TIMES[slot - 1]} · ${PHASES[Math.floor((slot - 1) / 3)]}`;
+export const NIGHT_LABEL = '深夜 · 大家都睡了';
 
 /** "A8" for the ample condition, "B2"/"B3" for the low-capacity ones. */
 export const conditionName = capacity => (capacity === 8 ? 'A8' : 'B' + capacity);

@@ -4,7 +4,7 @@
 // interacted on at least three days and where both residents initiated at
 // least once (validated by the end of day 10). Persistent cores are triples
 // whose three pairs each met on two or more days in both halves of the run.
-import { pairKey, dayOf, TOTAL_TICKS } from './config.js';
+import { pairKey, dayOf, TOTAL_TICKS, NEEDS } from './config.js';
 
 const LATE_WINDOW = { from: 6, to: 10 };
 const EARLY_WINDOW = { from: 1, to: 5 };
@@ -67,6 +67,16 @@ export function measure(state) {
     rightCensoredInvitations: state.invitations.filter(i => i.due > state.tick).length,
     resourceWaits: log.resourceWaits,
     invalidActions: log.invalidActions,
+    // Daily life (descriptive only; not part of the V5 outcome measures).
+    life: {
+      ...log.life,
+      averageNeeds: Object.fromEntries(
+        Object.keys(NEEDS).map(need => [
+          need,
+          Math.round(state.agents.reduce((sum, a) => sum + a.needs[need], 0) / state.agents.length),
+        ]),
+      ),
+    },
   };
 }
 
@@ -75,6 +85,16 @@ function scanEvents(events) {
   const interactionDays = new Map();
   const lateInitiators = new Map();
   const counts = { borrowAttempts: 0, capacityFailures: 0, resourceWaits: 0, invalidActions: 0 };
+  const life = {
+    mealsCooked: 0,
+    mealsEaten: 0,
+    cafeMeals: 0,
+    showers: 0,
+    nightsSlept: 0,
+    naps: 0,
+    workouts: 0,
+  };
+  const diners = new Map(); // "tick|zone" → residents eating there together
   const setFor = (map, key) => {
     let set = map.get(key);
     if (!set) map.set(key, (set = new Set()));
@@ -98,10 +118,32 @@ function scanEvents(events) {
       case 'invalid':
         counts.invalidActions++;
         break;
+      case 'cook':
+        life.mealsCooked++;
+        break;
+      case 'eat': {
+        life.mealsEaten++;
+        if (!event.mealId) life.cafeMeals++;
+        const table = `${event.tick}|${event.zone}`;
+        diners.set(table, (diners.get(table) ?? 0) + 1);
+        break;
+      }
+      case 'shower':
+        life.showers++;
+        break;
+      case 'sleep':
+        if (event.automatic) life.nightsSlept++;
+        else life.naps++;
+        break;
+      case 'exercise':
+        life.workouts++;
+        break;
     }
     if (event.resourceWait) counts.resourceWaits++;
   }
-  return { interactionDays, lateInitiators, ...counts };
+  // A shared meal: two or more residents eating at the same table in the same slot.
+  life.sharedMeals = [...diners.values()].filter(n => n >= 2).length;
+  return { interactionDays, lateInitiators, ...counts, life };
 }
 
 /** All triples (as "A|B|C") whose three pairs are core edges within the window. */

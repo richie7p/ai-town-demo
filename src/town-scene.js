@@ -5,7 +5,7 @@
 // presentation actor; neither its movement nor inspecting furniture changes a
 // research record. Game objects are created in a fixed order because Phaser
 // draws objects of equal depth in creation order.
-import { ACTION_NAMES, TICKS_PER_DAY } from './config.js';
+import { ACTION_NAMES, TICKS_PER_DAY, dayOf, weatherOf } from './config.js';
 import * as townAssets from './town-assets.js';
 import { RESIDENT_CLIPS } from './resident-motion.js';
 import { RESIDENT_SCALE, SEATED_OFFSET, motionRate, walkDuration, seatedPose } from './character-motion.js';
@@ -29,7 +29,9 @@ import {
   nearestWalkable,
   locationAt,
   createMinimapDataUrl,
+  OUTDOOR_RECTS,
 } from './town-map.js';
+import { drawCatSheet, drawDuckSheet, drawRainTile, catSpot, CAT_FRAME } from './town-life.js';
 import { activityAnchor } from './activity-anchors.js';
 import { drawVisitorSheet, VISITOR_FRAME, VISITOR_DIRECTIONS } from './visitor-art.js';
 import { wrapText, placeBubbles } from './speech-bubbles.js';
@@ -38,12 +40,13 @@ const { width: W, height: H } = WORLD_SIZE;
 /** The canvas is always 1200 CSS pixels wide; its height follows the host's aspect ratio. */
 const VIEW_WIDTH = 1200;
 const FONT = '"Microsoft JhengHei", "Noto Sans TC", sans-serif';
-const INITIAL_ZOOM = 1.65;
+// Zoom is relative to the whole town fitting the view; the town is 3072 px wide.
+const INITIAL_ZOOM = 2.5;
 const ZOOM_STEP = 0.25;
-const FOLLOW_ZOOM = 3;
-const CLOSE_ZOOM = 2.2;
+const FOLLOW_ZOOM = 4.5;
+const CLOSE_ZOOM = 3.2;
 /** Names are shown for everyone from this zoom; below it only for the selected resident. */
-const NAME_ZOOM = 1.4;
+const NAME_ZOOM = 2;
 const DRAG_THRESHOLD = 6;
 const FOLLOW_LERP = 0.14;
 const WALK_KEYS = new Set(['w', 'a', 's', 'd', 'arrowup', 'arrowleft', 'arrowdown', 'arrowright']);
@@ -82,6 +85,7 @@ const DEPTH = {
   background: 0,
   route: 2,
   evening: 3000,
+  rain: 3050,
   lampGlow: 3005,
   lampCore: 3006,
   marker: 3200,
@@ -339,6 +343,7 @@ export function createTownScene(
         this.ready = true;
         this.cameras.main.setBounds(0, 0, W, H).setRoundPixels(true);
         this.applyCamera(true);
+        this.cameras.main.centerOn(...ZONE_CENTERS.house);
         this.setUpCanvas();
         this.setUpPointer();
         this.setUpKeyboard();
@@ -571,6 +576,8 @@ export function createTownScene(
       this.objectHighlight = this.add.graphics().setDepth(DEPTH.highlight);
       for (const [index, agent] of frame.agents.entries())
         this.addCharacter(agent, assets.characterKeys[agent.id], index);
+      this.buildWeather();
+      this.buildPets();
       this.buildVisitor();
       this.built = true;
       this.toggleExplore();
@@ -646,7 +653,23 @@ export function createTownScene(
       })
         .setOrigin(0, 1)
         .setVisible(false);
-      const container = this.add.container(0, 0, [shadow, ring, sprite]);
+      // Life props carried with the body: a blanket and "z z" while asleep, steam in the shower.
+      const blanket = this.add.graphics().setVisible(false);
+      blanket.fillStyle(0x6b5a4a, 0.35).fillRoundedRect(-23, -47, 46, 50, 7);
+      blanket
+        .fillStyle(Phaser.Display.Color.HexStringToColor(agent.color).color, 1)
+        .fillRoundedRect(-22, -50, 44, 50, 7);
+      blanket.fillStyle(0xf3ecd8, 1).fillRoundedRect(-22, -50, 44, 9, 4);
+      blanket.fillStyle(0xffffff, 0.18).fillRect(-18, -36, 36, 2).fillRect(-18, -24, 36, 2);
+      const snore = this.text(14, -86, 'z z', 13, '#5b6f8f', { fontStyle: 'bold' }).setVisible(false);
+      const steam = this.add.graphics().setVisible(false);
+      steam
+        .fillStyle(0xffffff, 0.75)
+        .fillCircle(-8, -58, 9)
+        .fillCircle(6, -66, 11)
+        .fillCircle(-2, -78, 8)
+        .fillCircle(10, -48, 7);
+      const container = this.add.container(0, 0, [shadow, ring, sprite, blanket, steam, snore]);
       // Furniture hides the body by foot position, but names and activity
       // labels stay readable when someone sits beside a southern wall.
       const badges = this.add.container(0, 0, [name, action, equipment]).setDepth(DEPTH.badges + index);
@@ -660,6 +683,10 @@ export function createTownScene(
         name,
         action,
         equipment,
+        blanket,
+        snore,
+        steam,
+        lifeTween: null,
         appearance: appearanceIdentity(agent, index),
         direction: 'down',
         zone: agent.zone,
@@ -896,7 +923,9 @@ export function createTownScene(
       const finished = () => {
         actor.seated = seated;
         this.bodyOffset(actor, seated ? SEATED_OFFSET : 0);
-        const directional = `${pose}-${actor.direction}`;
+        if (this.showLifePose(actor, pose)) return;
+        // Running plays the walking clip in place.
+        const directional = pose === 'run' ? actor.direction : `${pose}-${actor.direction}`;
         this.play(
           actor,
           RESIDENT_CLIPS[directional] ? directional : pose,
@@ -908,9 +937,60 @@ export function createTownScene(
       else finished();
     }
 
+    /**
+     * Sleeping (lying under a blanket in bed) and showering (hidden behind the
+     * curtain, with steam) replace the body animation. Returns true when shown.
+     */
+    showLifePose(actor, pose) {
+      this.clearLifePose(actor);
+      if (pose !== 'sleep' && pose !== 'shower') return false;
+      actor.sprite.anims.stop();
+      actor.animationKey = null;
+      actor.shadow.setVisible(false);
+      const animated = this.options.playing && !this.options.reducedMotion;
+      if (pose === 'sleep') {
+        actor.sprite.setFrame(RESIDENT_CLIPS['idle-down'].start);
+        actor.blanket.setVisible(true);
+        actor.snore.setVisible(true).setAlpha(1).setY(-86);
+        if (actor.anchor?.depth) actor.container.setDepth(actor.anchor.depth);
+        if (animated)
+          actor.lifeTween = this.tweens.add({
+            targets: actor.snore,
+            y: -100,
+            alpha: 0.2,
+            duration: 1600,
+            repeat: -1,
+          });
+      } else {
+        actor.sprite.setVisible(false);
+        actor.steam.setVisible(true).setAlpha(0.8);
+        if (animated)
+          actor.lifeTween = this.tweens.add({
+            targets: actor.steam,
+            alpha: 0.35,
+            y: -6,
+            duration: 900,
+            yoyo: true,
+            repeat: -1,
+          });
+      }
+      return true;
+    }
+
+    clearLifePose(actor) {
+      actor.lifeTween?.stop();
+      actor.lifeTween = null;
+      actor.sprite.setVisible(true);
+      actor.shadow.setVisible(true);
+      actor.blanket.setVisible(false);
+      actor.snore.setVisible(false);
+      actor.steam.setVisible(false).setY(0);
+    }
+
     /** Walk the prepared route (standing up first if seated), stepping in time with the distance covered. */
     walk(actor, destination, distance) {
       const begin = () => {
+        this.clearLifePose(actor);
         this.bodyOffset(actor, 0);
         actor.seated = false;
         actor.moving = true;
@@ -962,10 +1042,18 @@ export function createTownScene(
         const kind = zone === 'workshop' ? '工具' : '相機';
         label.setText(`${kind}  ${items.length - held}/${items.length} 可借${held ? ` · ${held} 持有` : ''}`);
       }
+      // Light through the day: dawn, full day, dusk, evening and night (the sleeping frame).
       const slotIndex = (Math.max(1, frame.tick) - 1) % TICKS_PER_DAY;
-      const evening = slotIndex >= 9;
-      this.phaseOverlay.setAlpha(evening ? 0.12 : slotIndex >= 6 ? 0.035 : 0);
-      this.ambientLights.forEach((light, i) => light.setAlpha(evening ? (i % 2 ? 0.52 : 0.16) : 0));
+      const night = frame.tick > 0 && frame.tick % TICKS_PER_DAY === 0;
+      const weather = weatherOf(frame.config.seed, dayOf(frame.tick));
+      const darkness = night ? 0.42 : [0.05, 0, 0, 0, 0, 0, 0, 0.03, 0.08, 0.15, 0.22, 0.3][slotIndex];
+      const overcast = weather === 'rain' ? 0.1 : weather === 'cloudy' ? 0.04 : 0;
+      this.phaseOverlay.setAlpha(Math.min(0.5, darkness + overcast));
+      const lampsOn = night || slotIndex >= 9;
+      this.ambientLights.forEach((light, i) => light.setAlpha(lampsOn ? (i % 2 ? 0.52 : 0.16) : 0));
+      this.weather = weather;
+      this.rain?.setVisible(weather === 'rain').setAlpha(weather === 'rain' ? 0.55 : 0);
+      this.updatePets(frame);
     }
 
     // -----------------------------------------------------------------------
@@ -976,7 +1064,8 @@ export function createTownScene(
       this.bubbles = [];
       for (const event of visibleUtterances(frame, selected, MAX_BUBBLES)) {
         const actor = this.characters.get(event.participants[0]);
-        if (!actor) continue;
+        // Whoever has gone to sleep has finished talking for the day.
+        if (!actor || actor.presentation?.pose === 'sleep') continue;
         const speaker = frame.agents.find(a => a.id === actor.id)?.name ?? '';
         const ellipsis = event.text.length > BUBBLE_TEXT_LIMIT ? '…' : '';
         const text = this.text(
@@ -1030,6 +1119,109 @@ export function createTownScene(
 
     // -----------------------------------------------------------------------
     // Visitor
+
+    /** Rain layers over the open sky only (never indoors), scrolled together in update() on rainy days. */
+    buildWeather() {
+      if (!this.textures.exists('town-rain')) this.textures.addCanvas('town-rain', drawRainTile());
+      const sheets = OUTDOOR_RECTS.map(r =>
+        this.add
+          .tileSprite(r.x, r.y, r.width, r.height, 'town-rain')
+          .setOrigin(0, 0)
+          .setDepth(DEPTH.rain)
+          .setVisible(false),
+      );
+      // One handle for all sheets; each sheet's tile offset keeps the streaks aligned across seams.
+      this.rain = {
+        visible: false,
+        setVisible: visible => {
+          this.rain.visible = visible;
+          for (const sheet of sheets) sheet.setVisible(visible);
+          return this.rain;
+        },
+        setAlpha: alpha => {
+          for (const sheet of sheets) sheet.setAlpha(alpha);
+          return this.rain;
+        },
+        scroll: (dx, dy) => {
+          this.rainOffset = [(this.rainOffset?.[0] ?? 0) + dx, (this.rainOffset?.[1] ?? 0) + dy];
+          sheets.forEach((sheet, i) => {
+            const r = OUTDOOR_RECTS[i];
+            sheet.setTilePosition(r.x + this.rainOffset[0], r.y + this.rainOffset[1]);
+          });
+        },
+      };
+      this.rain.scroll(0, 0);
+    }
+
+    /**
+     * The house cat and the ducks. They follow a fixed daily schedule for each
+     * frame (purely decorative; nothing in the research world refers to them).
+     */
+    buildPets() {
+      if (!this.textures.exists('town-cat'))
+        this.textures.addSpriteSheet('town-cat', drawCatSheet(), {
+          frameWidth: CAT_FRAME.width,
+          frameHeight: CAT_FRAME.height,
+        });
+      if (!this.textures.exists('town-duck'))
+        this.textures.addSpriteSheet('town-duck', drawDuckSheet(), { frameWidth: 16, frameHeight: 12 });
+      const start = catSpot(0);
+      this.cat = {
+        sprite: this.add.sprite(start.point[0], start.point[1], 'town-cat', 2).setOrigin(0.5, 1),
+        tween: null,
+      };
+      this.cat.sprite.setDepth(start.point[1]);
+      this.ducks = [
+        [1120, 1540, 1260],
+        [1220, 1600, 1150],
+        [2880, 500, 900],
+      ].map(([x, y, toY], i) => {
+        const sprite = this.add.sprite(x, y, 'town-duck', 0).setDepth(y);
+        const tween = this.tweens.add({
+          targets: sprite,
+          y: i < 2 ? y + 30 : toY,
+          x: i < 2 ? x + 40 : x,
+          duration: 9000 + i * 2500,
+          yoyo: true,
+          repeat: -1,
+          paused: true,
+          onYoyo: () => sprite.setFlipX(!sprite.flipX),
+        });
+        this.ambientTweens.push(tween);
+        return sprite;
+      });
+    }
+
+    /** Move the cat to where it spends this part of the day. */
+    updatePets(frame) {
+      if (!this.cat) return;
+      const { point, frame: pose } = catSpot(frame.tick);
+      const cat = this.cat;
+      cat.tween?.stop();
+      const from = [cat.sprite.x, cat.sprite.y];
+      const route = findWalkPath(nearestWalkable(from), nearestWalkable(point));
+      const animate = this.options.playing && !this.options.reducedMotion && route.length > 1;
+      if (!animate) {
+        cat.sprite
+          .setPosition(...point)
+          .setDepth(point[1])
+          .setFrame(pose);
+        return;
+      }
+      const progress = { value: 0 };
+      cat.tween = this.tweens.add({
+        targets: progress,
+        value: 1,
+        duration: Math.min(5000, 600 + pathLength(route) * 4),
+        onUpdate: () => {
+          const next = samplePath(route, progress.value);
+          cat.sprite.setFlipX(next[0] < cat.sprite.x);
+          cat.sprite.setPosition(...next).setDepth(next[1]);
+          cat.sprite.setFrame(Math.floor(progress.value * 12) % 2);
+        },
+        onComplete: () => cat.sprite.setPosition(...point).setFrame(pose),
+      });
+    }
 
     buildVisitor() {
       const key = 'town-observer-v1';
@@ -1213,6 +1405,9 @@ export function createTownScene(
 
     update(_time, delta) {
       this.updateVisitor(delta);
+      if (this.rain?.visible && !this.options.reducedMotion) {
+        this.rain.scroll(delta * 0.08, -delta * 0.45);
+      }
       if (this.bubbles.some(b => b.actor.moving || b.actor.transitioning)) this.layoutBubbles();
       notifyCamera();
       if (this.built) this.publishResidentStates();

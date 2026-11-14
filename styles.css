@@ -432,6 +432,25 @@ a {
   font-size: 12px;
 }
 
+/* Weather pill in the clock. */
+.weather {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  align-self: center;
+  padding: 2px 9px 2px 7px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 700;
+}
+.weather .icon {
+  width: 16px;
+  height: 16px;
+  color: var(--accent-text);
+}
+
 /* -------------------------------------------------------------------- Layout */
 main {
   display: flex;
@@ -791,6 +810,30 @@ body[data-view='research'] .town-view {
   font-weight: 700;
 }
 
+/* Three thin need bars under each resident card: fullness, energy, cleanliness. */
+.mini-needs {
+  display: grid;
+  gap: 2px;
+  width: 64px;
+  margin-top: 6px;
+}
+.mini-needs i {
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--good);
+  transition: width 0.3s;
+}
+.mini-needs i:nth-child(2) {
+  background: var(--accent);
+}
+.mini-needs i:nth-child(3) {
+  background: var(--visitor);
+}
+.mini-needs i.low {
+  background: var(--bad);
+}
+
 /* Portraits show the resident's head and shoulders from the 64×96 atlas frame. */
 .mini-portrait,
 .portrait,
@@ -904,6 +947,52 @@ body[data-view='research'] .town-view {
   background: var(--surface-2);
   color: var(--ink-3);
   font-size: 12px;
+}
+
+/* Needs: a labelled bar per need. */
+.needs {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+}
+.need {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 700;
+}
+.need b {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.need-bar {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: var(--surface-3);
+}
+.need-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+  background: var(--good);
+  transition: width 0.3s;
+}
+.need-energy .need-bar i {
+  background: var(--accent);
+}
+.need-hygiene .need-bar i {
+  background: var(--visitor);
+}
+.need.low .need-bar i {
+  background: var(--bad);
+}
+.need.low b {
+  color: var(--bad);
 }
 
 /* "此刻" tab */
@@ -1227,6 +1316,57 @@ body[data-view='town'] .research-view {
   margin-top: 4px;
   color: var(--ink-2);
   font-size: 13px;
+}
+
+/* Daily-life statistics in the research view. */
+.life-stats {
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+.life-stats h3 {
+  font-size: 17px;
+}
+.life-stats h3 small {
+  margin-left: 8px;
+  color: var(--ink-3);
+  font-size: 12px;
+  font-weight: 500;
+}
+.life-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+.life-grid > div {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+.life-grid strong {
+  display: block;
+  font-size: 24px;
+  font-variant-numeric: tabular-nums;
+}
+.life-grid span {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+.life-needs {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  margin-top: 12px;
+  color: var(--ink-3);
+  font-size: 12px;
+  font-weight: 700;
+}
+.life-needs .needs {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
 }
 
 /* ------------------------------------------------------- Journal and network */
@@ -1586,6 +1726,13 @@ body.town-expanded {
   .metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .life-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .life-needs,
+  .life-needs .needs {
+    grid-template-columns: minmax(0, 1fr);
+  }
   .dock {
     grid-template-columns: auto minmax(0, 1fr);
     grid-template-areas:
@@ -1663,6 +1810,9 @@ body.town-expanded {
   .clock #phase-label {
     display: inline;
     font-size: 13px;
+  }
+  .weather span {
+    display: none;
   }
   #condition-label {
     grid-area: meta;

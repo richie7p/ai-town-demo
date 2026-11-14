@@ -84,6 +84,23 @@
       </symbol>
       <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 20V9M7.5 13.5L12 9l4.5 4.5M5 4h14" /></symbol>
       <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M7 17L17 7M9 7h8v8" /></symbol>
+      <symbol id="i-tree" viewBox="0 0 24 24">
+        <path d="M12 3a5 5 0 0 1 4.6 7A4.5 4.5 0 0 1 14 18H10a4.5 4.5 0 0 1-2.6-8A5 5 0 0 1 12 3z" />
+        <path d="M12 13v8" />
+      </symbol>
+      <symbol id="i-sunny" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="4" />
+        <path
+          d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"
+        />
+      </symbol>
+      <symbol id="i-cloudy" viewBox="0 0 24 24">
+        <path d="M7 18h10a4 4 0 0 0 .4-8A5.5 5.5 0 0 0 7 9.5 4.3 4.3 0 0 0 7 18z" />
+      </symbol>
+      <symbol id="i-rain" viewBox="0 0 24 24">
+        <path d="M7 15h10a4 4 0 0 0 .4-8A5.5 5.5 0 0 0 7 6.5 4.3 4.3 0 0 0 7 15z" />
+        <path d="M8 18l-1 3M12 18l-1 3M16 18l-1 3" />
+      </symbol>
     </svg>
 
     <a class="skip-link" href="#town-stage">跳到小鎮畫面</a>
@@ -98,6 +115,10 @@
         <span class="live-dot" id="playing-dot" aria-hidden="true"></span>
         <strong id="day-label">第 01 天</strong>
         <span id="phase-label">清晨，準備出門</span>
+        <span class="weather" id="weather-label" title="今天的天氣">
+          <svg aria-hidden="true" class="icon"><use id="weather-icon" href="#i-sunny" /></svg
+          ><span id="weather-name">晴</span>
+        </span>
       </div>
       <nav class="view-switch" aria-label="觀看模式">
         <button id="mode-life" class="active" aria-pressed="true">小鎮</button>
@@ -110,7 +131,10 @@
         </button>
       </div>
     </header>
-    <p class="notice"><strong>離線生活示範</strong>規則型角色與合成對話，不呼叫 LLM，不是正式研究結果。</p>
+    <p class="notice">
+      <strong>離線生活示範</strong>規則型角色與合成對話，不呼叫
+      LLM，不是正式研究結果。居民會煮飯、洗澡、睡覺，也會借設備、約人合作。
+    </p>
 
     <main id="top">
       <!-- Town view: the stage with its controls, the residents and the inspector. Panels are filled by app.js. -->
@@ -125,17 +149,20 @@
 
             <div class="stage-bar stage-top">
               <div class="district-nav" role="group" aria-label="前往街區">
-                <button class="chip" data-zone="home" disabled>
-                  <svg aria-hidden="true" class="icon"><use href="#i-home" /></svg>共享住宅
+                <button class="chip" data-zone="house" disabled>
+                  <svg aria-hidden="true" class="icon"><use href="#i-home" /></svg>合租屋
                 </button>
                 <button class="chip" data-zone="workshop" disabled>
-                  <svg aria-hidden="true" class="icon"><use href="#i-tools" /></svg>創作工坊
+                  <svg aria-hidden="true" class="icon"><use href="#i-tools" /></svg>工坊
                 </button>
                 <button class="chip" data-zone="plaza" disabled>
-                  <svg aria-hidden="true" class="icon"><use href="#i-cup" /></svg>花園咖啡
+                  <svg aria-hidden="true" class="icon"><use href="#i-cup" /></svg>咖啡館
                 </button>
                 <button class="chip" data-zone="studio" disabled>
-                  <svg aria-hidden="true" class="icon"><use href="#i-camera" /></svg>攝影藝廊
+                  <svg aria-hidden="true" class="icon"><use href="#i-camera" /></svg>攝影室
+                </button>
+                <button class="chip" data-zone="park" disabled>
+                  <svg aria-hidden="true" class="icon"><use href="#i-tree" /></svg>公園
                 </button>
               </div>
               <div class="camera-tools" role="group" aria-label="鏡頭控制">
@@ -289,6 +316,20 @@
             ><small>固定三人組，非三人共同活動</small>
           </article>
         </div>
+        <section class="life-stats" aria-labelledby="life-title">
+          <h3 id="life-title">生活起居 <small>描述性統計，不屬於 V5 指標</small></h3>
+          <div class="life-grid">
+            <div><strong id="life-meals">0</strong><span>煮了幾鍋飯</span></div>
+            <div>
+              <strong id="life-eaten">0</strong><span>吃了幾餐（咖啡館 <b id="life-cafe">0</b>）</span>
+            </div>
+            <div><strong id="life-shared">0</strong><span>一起吃飯的時段</span></div>
+            <div><strong id="life-showers">0</strong><span>洗澡次數</span></div>
+            <div><strong id="life-workouts">0</strong><span>運動次數</span></div>
+            <div><strong id="life-nights">0</strong><span>睡過的夜晚</span></div>
+          </div>
+          <div class="life-needs" id="life-needs"></div>
+        </section>
         <p id="research-detail" class="research-detail"></p>
         <div class="research-actions">
           <button id="finish" class="button primary">
@@ -344,6 +385,7 @@
             <select id="event-filter" class="select" aria-label="記事類別">
               <option value="life">生活片段</option>
               <option value="social">對話與合作</option>
+              <option value="home">生活起居</option>
               <option value="equipment">設備借還</option>
               <option value="failed">未成立的行動</option>
               <option value="all">全部事件</option>
@@ -370,7 +412,7 @@
 
     <footer class="footer">
       <span><strong>AI 小鎮</strong> 一起生活，慢慢發現。</span>
-      <span>研究計畫 V5 · HTML ＋ Phaser 互動展示 v0.8</span>
+      <span>研究計畫 V5 · HTML ＋ Phaser 互動展示 v0.9</span>
     </footer>
 
     <!-- Dialogs: new run settings and event evidence. -->

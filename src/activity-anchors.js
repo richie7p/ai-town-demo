@@ -9,26 +9,20 @@ import {
   ZONE_CENTERS,
   REST_SEATS,
   WORK_SEATS,
+  LIFE_SPOTS,
+  IDLE_SPOTS,
+  CONVERSATION_SPOTS,
+  BORROW_SPOTS,
   tileCenter,
-  mapObject,
   isWalkable,
   nearestWalkable,
   locationAt,
 } from './town-map.js';
 
-/** Eight standing spots per district, one per resident (by resident order). */
-const IDLE_SPOTS = {
-  home: [5, 8, 11, 13, 17, 19, 22, 25].map(x => [x, 16]),
-  workshop: [38, 41, 44, 47, 50, 53, 56, 59].map(x => [x, 12]),
-  plaza: [5, 8, 11, 14, 17, 20, 23, 26].map(x => [x, 33]),
-  studio: [38, 41, 44, 47, 50, 53, 56, 59].map(x => [x, 38]),
-};
-/** Where a conversation gathers when nobody in it is tied to furniture (tiles). */
-const CONVERSATION_SPOTS = { home: [16, 17], workshop: [48, 12], plaza: [15, 37], studio: [48, 38] };
 const EQUIPMENT_DISTRICTS = ['workshop', 'studio'];
 const SPEECH_KINDS = new Set(['talk', 'reply', 'invite', 'accept', 'decline']);
 const FAILURE_KINDS = new Set(['invalid', 'capacity_failure', 'join_failed']);
-/** Event kinds that show what a resident is doing in their district. */
+/** Event kinds that show what a resident is doing where they are. */
 const ACTIVITY_KINDS = new Set([
   ...SPEECH_KINDS,
   'rest',
@@ -39,7 +33,20 @@ const ACTIVITY_KINDS = new Set([
   'return',
   'walk',
   'move',
+  'cook',
+  'eat',
+  'shower',
+  'sleep',
+  'exercise',
 ]);
+const REST_LABELS = {
+  bedroom: '在書桌前看書',
+  living: '坐在沙發上休息',
+  kitchen: '坐在餐桌旁',
+  plaza: '在咖啡館坐坐',
+  park: '坐在長椅上吹風',
+  gym: '坐著喘口氣',
+};
 const SEARCH_RADIUS = 8;
 const workLabel = zone => (zone === 'studio' ? '整理構圖與攝影' : '在工作桌製作');
 const pointKey = point => point.join(',');
@@ -107,7 +114,10 @@ function placeResidents(frame, tick, earliestTick, anchorsAt) {
 function zonesAt(frame, tick) {
   const agents = frame.agents.map(agent => ({ ...agent }));
   for (const event of frame.events.slice().reverse()) {
-    if (event.tick <= tick || event.type !== 'move' || !event.success) continue;
+    // Nightfall sends everyone to bed like a move; its event also records the zone left.
+    const relocation =
+      (event.type === 'move' && event.success) || (event.type === 'sleep' && event.automatic);
+    if (event.tick <= tick || !relocation) continue;
     const mover = agents.find(agent => agent.id === event.participants[0]);
     if (mover) mover.zone = event.zone;
   }
@@ -121,26 +131,114 @@ function anchorForLatestActivity(agent, index, history, tick, { working, locked 
         e.success === true &&
         e.participants?.[0] === agent.id &&
         ACTIVITY_KINDS.has(e.type) &&
-        (e.type === 'move' ? e.destination === agent.zone : !e.zone || e.zone === agent.zone),
+        (e.type === 'move'
+          ? e.destination === agent.zone
+          : e.automatic
+            ? agent.zone === 'bedroom'
+            : !e.zone || e.zone === agent.zone),
     )
     .at(-1);
   const kind = latest?.type;
   const slot = index % 8;
   const happeningNow = latest?.tick === tick;
+  const lock = () => happeningNow && locked.add(agent.id);
+  const zone = agent.zone;
+  const ownRoom = agent.bedroom ?? index;
 
-  if (kind === 'rest' || kind === 'wait') {
-    const seat = REST_SEATS[agent.zone][slot];
-    if (happeningNow) locked.add(agent.id);
+  if (zone === 'bedroom') {
+    const bed = LIFE_SPOTS.beds[ownRoom % LIFE_SPOTS.beds.length];
+    if (kind === 'sleep') {
+      lock();
+      return {
+        point: bed.point.slice(),
+        objectId: bed.object.id,
+        label: '在床上睡覺',
+        facing: 'down',
+        seated: false,
+        pose: 'sleep',
+        depth: bed.depth,
+      };
+    }
+    const desk = LIFE_SPOTS.desks[ownRoom % LIFE_SPOTS.desks.length];
+    if (kind === 'rest' || kind === 'wait') {
+      lock();
+      return {
+        point: desk.approach.slice(),
+        objectId: desk.id,
+        label: REST_LABELS.bedroom,
+        facing: desk.facing,
+        seated: true,
+      };
+    }
+    return {
+      point: bed.object.approach.slice(),
+      objectId: bed.object.id,
+      label: '在自己的房間',
+      facing: 'down',
+      seated: false,
+    };
+  }
+  if (kind === 'eat' && LIFE_SPOTS.eat[zone]) {
+    const chair = LIFE_SPOTS.eat[zone][slot % LIFE_SPOTS.eat[zone].length];
+    lock();
+    return {
+      point: chair.approach.slice(),
+      objectId: chair.id,
+      label: zone === 'plaza' ? '在咖啡館吃飯' : '在餐桌吃飯',
+      facing: chair.facing,
+      seated: true,
+    };
+  }
+  if (kind === 'cook' && zone === 'kitchen') {
+    const stove = LIFE_SPOTS.cook[slot % LIFE_SPOTS.cook.length];
+    lock();
+    return {
+      point: stove.point.slice(),
+      objectId: stove.objectId,
+      label: '在爐台煮飯',
+      facing: 'up',
+      seated: false,
+      pose: 'cook',
+    };
+  }
+  if (kind === 'shower' && zone === 'bathroom') {
+    const shower = LIFE_SPOTS.shower[slot % LIFE_SPOTS.shower.length];
+    lock();
+    return {
+      point: shower.point.slice(),
+      objectId: shower.object.id,
+      label: '在淋浴間洗澡',
+      facing: 'down',
+      seated: false,
+      pose: 'shower',
+    };
+  }
+  if (kind === 'exercise' && zone === 'gym') {
+    const spot = LIFE_SPOTS.exercise[slot % LIFE_SPOTS.exercise.length];
+    lock();
+    const running = spot.pose === 'run';
+    return {
+      point: spot.point.slice(),
+      objectId: spot.object.id,
+      label: running ? '在跑步機上跑步' : '在墊子上伸展',
+      facing: spot.facing,
+      seated: !running,
+      pose: running ? 'run' : undefined,
+    };
+  }
+  if ((kind === 'rest' || kind === 'wait') && REST_SEATS[zone]?.length) {
+    const seat = REST_SEATS[zone][slot % REST_SEATS[zone].length];
+    lock();
     return {
       point: seat.approach.slice(),
       objectId: seat.id,
-      label: kind === 'rest' ? '坐下休息' : '坐下等候',
+      label: kind === 'wait' ? '坐下等候' : (REST_LABELS[zone] ?? '坐下休息'),
       facing: seat.facing,
       seated: true,
     };
   }
-  if ((kind === 'work' || kind === 'join') && WORK_SEATS[agent.zone]) {
-    const seat = WORK_SEATS[agent.zone][slot];
+  if ((kind === 'work' || kind === 'join') && WORK_SEATS[zone]) {
+    const seat = WORK_SEATS[zone][slot];
     if (happeningNow) {
       working.add(agent.id);
       locked.add(agent.id);
@@ -148,31 +246,32 @@ function anchorForLatestActivity(agent, index, history, tick, { working, locked 
     return {
       point: seat.point.slice(),
       objectId: seat.object.id,
-      label: workLabel(agent.zone),
+      label: workLabel(zone),
       facing: 'up',
       seated: false,
     };
   }
-  if ((kind === 'borrow' || kind === 'return') && WORK_SEATS[agent.zone]) {
-    const studio = agent.zone === 'studio';
+  if ((kind === 'borrow' || kind === 'return') && BORROW_SPOTS[zone]) {
+    const cabinet = BORROW_SPOTS[zone];
     return {
-      point: tileCenter(38 + index, studio ? 31 : 5),
-      objectId: mapObject(studio ? 'studio-storage' : 'workshop-storage').id,
+      point: tileCenter(cabinet.x + index, cabinet.y),
+      objectId: cabinet.objectId,
       label: kind === 'borrow' ? '在器材櫃借用設備' : '歸還器材',
       facing: 'up',
       seated: false,
     };
   }
+  const spots = IDLE_SPOTS[zone] ?? IDLE_SPOTS.living;
   if (kind === 'walk') {
-    const spot = IDLE_SPOTS[agent.zone][(index + latest.tick) % 8];
-    return { point: tileCenter(...spot), label: '在附近散步', facing: 'down', seated: false };
+    const spot = spots[(index + latest.tick) % spots.length];
+    return {
+      point: tileCenter(...spot),
+      label: zone === 'park' ? '在公園散步' : '在附近走走',
+      facing: 'down',
+      seated: false,
+    };
   }
-  return {
-    point: tileCenter(...IDLE_SPOTS[agent.zone][slot]),
-    label: '在附近觀察',
-    facing: 'down',
-    seated: false,
-  };
+  return { point: tileCenter(...spots[slot % spots.length]), label: '在附近', facing: 'down', seated: false };
 }
 
 /**
@@ -225,7 +324,7 @@ function seatWorkers(agents, anchors, working, succeededNow) {
  */
 function gatherConversations(agents, anchors, locked, succeededNow) {
   const speech = succeededNow.filter(e => SPEECH_KINDS.has(e.type));
-  for (const zone of Object.keys(IDLE_SPOTS)) {
+  for (const zone of Object.keys(CONVERSATION_SPOTS)) {
     const present = new Set(agents.filter(agent => agent.zone === zone).map(agent => agent.id));
     const groups = [];
     for (const event of speech) {

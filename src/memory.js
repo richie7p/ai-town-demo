@@ -1,7 +1,7 @@
 // What a resident knows before deciding: its surroundings plus a bounded set of
 // remembered events. The observation is built only from the start-of-tick
 // state, so the action a resident later picks can never influence retrieval.
-import { dayOf, ZONES } from './config.js';
+import { dayOf, ZONES, weatherOf, timeOf } from './config.js';
 
 /** Recent events (this many ticks or fewer) are always offered first. */
 const RECENT_TICKS = 2;
@@ -53,7 +53,15 @@ export function observe(state, actorId) {
   const actor = state.agents.find(agent => agent.id === actorId);
   if (!actor) throw new Error('Unknown actor');
   const tick = state.tick + 1;
-  const peers = state.agents.filter(agent => agent.zone === actor.zone && agent.id !== actorId);
+  // Nobody shares a private bedroom.
+  const peers = ZONES[actor.zone].private
+    ? []
+    : state.agents.filter(agent => agent.zone === actor.zone && agent.id !== actorId);
+  // Only someone in the kitchen can see which pots still have food today.
+  const meals =
+    actor.zone === 'kitchen'
+      ? state.meals.filter(m => m.servings > 0 && m.day === dayOf(tick)).map(m => ({ ...m }))
+      : [];
   const invitations = state.invitations.filter(
     i => [i.from, i.to].includes(actorId) && i.due >= tick && ['pending', 'accepted'].includes(i.status),
   );
@@ -62,6 +70,7 @@ export function observe(state, actorId) {
     m =>
       m.to === actorId && !m.replied && tick - m.tick <= RECENT_TICKS && openConversation(m.conversationId),
   );
+
   const queryTags = [
     actor.zone,
     actor.goal,
@@ -94,11 +103,15 @@ export function observe(state, actorId) {
 
   return {
     tick,
-    actor: { ...actor },
-    peers: peers.map(peer => ({ ...peer })),
+    time: timeOf(tick),
+    weather: weatherOf(state.config.seed, dayOf(tick)),
+    actor: { ...actor, needs: { ...actor.needs } },
+    // Others are seen, but how hungry or tired they are is not.
+    peers: peers.map(({ needs, ...peer }) => peer),
     equipment: state.equipment.filter(e => e.zone === actor.zone).map(e => ({ ...e })),
     invitations: structuredClone(invitations),
     messages: structuredClone(messages),
+    meals,
     queryTags,
     provided,
     providedIds: provided.map(record => record.id),

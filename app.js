@@ -12,9 +12,19 @@ import { WORLD_SIZE, MIN_ZOOM, MAX_ZOOM } from './src/town-view-model.js';
 import { createMinimapDataUrl } from './src/town-map.js';
 import { activityAnchor } from './src/activity-anchors.js';
 import { createTownScene } from './src/town-scene.js';
-import { ZONES, ACTION_NAMES, TOTAL_TICKS, TICKS_PER_DAY, dayOf, slotOf } from './src/config.js';
+import {
+  ZONES,
+  ACTION_NAMES,
+  NEEDS,
+  WEATHER,
+  TOTAL_TICKS,
+  TICKS_PER_DAY,
+  dayOf,
+  slotOf,
+  weatherOf,
+} from './src/config.js';
 import { $, escapeHTML, percent, reducedMotion, scrollBehavior, setHTML, setText } from './src/ui/dom.js';
-import { conditionName, phaseOfSlot } from './src/ui/labels.js';
+import { conditionName, phaseOfSlot, NIGHT_LABEL } from './src/ui/labels.js';
 import { createJournal } from './src/ui/journal.js';
 import {
   portrait,
@@ -25,6 +35,7 @@ import {
   networkSVG,
   pairLinksHTML,
   networkStatsHTML,
+  needsHTML,
   eventEvidenceHTML,
   pairEvidenceHTML,
   comparisonHTML,
@@ -161,7 +172,11 @@ function render({ animate = false } = {}) {
   const current = frame();
   const slot = slotOf(current.tick);
   setText('day-label', `第 ${String(dayOf(current.tick)).padStart(2, '0')} 天`);
-  setText('phase-label', current.tick ? phaseOfSlot(slot) : '清晨，準備出門');
+  const night = current.tick > 0 && current.tick % TICKS_PER_DAY === 0;
+  setText('phase-label', !current.tick ? '07:00 · 清晨，準備出門' : night ? NIGHT_LABEL : phaseOfSlot(slot));
+  const weather = weatherOf(current.config.seed, dayOf(current.tick));
+  $('weather-icon').setAttribute('href', `#i-${weather}`);
+  setText('weather-name', WEATHER[weather].name);
   setText(
     'condition-label',
     `${conditionName(current.config.capacity)} · 每類 ${current.config.capacity} 件設備`,
@@ -213,10 +228,18 @@ function renderResidentList(current) {
     );
     setHTML(
       button,
-      `<div class="mini-portrait">${portrait(agent)}</div><strong>${escapeHTML(agent.name)}</strong><small></small>`,
+      `<div class="mini-portrait">${portrait(agent)}</div><strong>${escapeHTML(agent.name)}</strong><small></small>` +
+        '<span class="mini-needs" aria-hidden="true"><i></i><i></i><i></i></span>',
     );
     const label = proposal ? ACTION_NAMES[proposal.action] : zone;
-    if (button.lastElementChild.textContent !== label) button.lastElementChild.textContent = label;
+    const small = button.querySelector('small');
+    if (small.textContent !== label) small.textContent = label;
+    const bars = button.querySelector('.mini-needs').children;
+    Object.keys(NEEDS).forEach((need, i) => {
+      const value = agent.needs?.[need] ?? 0;
+      bars[i].style.width = `${value}%`;
+      bars[i].classList.toggle('low', value < 30);
+    });
   }
 }
 
@@ -251,6 +274,15 @@ function renderInspectedObject() {
 }
 
 function renderResearchSummary(m, tick) {
+  const life = m.life;
+  setText('life-meals', life.mealsCooked);
+  setText('life-eaten', life.mealsEaten);
+  setText('life-cafe', life.cafeMeals);
+  setText('life-shared', life.sharedMeals);
+  setText('life-showers', life.showers);
+  setText('life-workouts', life.workouts);
+  setText('life-nights', life.nightsSlept);
+  setHTML($('life-needs'), `<span>此刻全體平均</span>${needsHTML(life.averageNeeds)}`);
   setText('progress-value', `${tick} / ${TOTAL_TICKS}`);
   setText('interaction-value', m.interactionDays);
   setText('y-value', m.final ? percent(m.y) : '—');

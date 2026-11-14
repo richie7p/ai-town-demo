@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { ZONES } from '../src/config.js';
 import { createWorld, step } from '../src/engine.js';
 import { viewFrame } from '../src/presentation.js';
 import {
@@ -12,7 +13,7 @@ import {
 } from '../src/town-map.js';
 import { activityAnchor } from '../src/activity-anchors.js';
 
-const zones = ['home', 'workshop', 'plaza', 'studio'];
+const zones = Object.keys(ZONES);
 const action = (actor, action, fields = {}) => ({ actor, action, ...fields });
 function inZone(zone, capacity = 2) {
   const state = createWorld({ capacity });
@@ -93,7 +94,7 @@ test('blocked clicks are rejected, and the nearest legal point can be reached wi
 });
 
 test('an interrupted walk can be rerouted from its exact non-centered position', () => {
-  const frame = viewFrame(inZone('home'));
+  const frame = viewFrame(inZone('living'));
   const center = activityAnchor(frame.agents[0], frame).point;
   const from = [center[0] + 6, center[1] + 5];
   assert.ok(isWalkable(...from));
@@ -132,7 +133,8 @@ test('successful rest and equipment use are placed at reachable furniture in the
 });
 
 test('a delivered conversation brings the two participants close together without mutating the event', () => {
-  for (const zone of zones) {
+  // Nobody can be spoken to in a private bedroom.
+  for (const zone of zones.filter(zone => !ZONES[zone].private)) {
     const frame = viewFrame(
       step(inZone(zone), [action('A01', 'talk', { target: 'A02', text: '一起聊聊今天吧。' })]),
     );

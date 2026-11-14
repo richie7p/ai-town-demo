@@ -1,6 +1,6 @@
 {
   "name": "ai-town-demo",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "private": true,
   "type": "module",
   "description": "AI 小鎮 V5：HTML＋Phaser 八位居民日常、可追溯互動與回放",

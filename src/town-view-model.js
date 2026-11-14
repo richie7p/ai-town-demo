@@ -2,7 +2,7 @@
 // Presentation geometry only. These never determine interaction eligibility,
 // movement duration, equipment use or any V5 research outcome.
 import { activityAnchor } from './activity-anchors.js';
-import { findWalkPath } from './town-map.js';
+import { findWalkPath, isWalkable, nearestWalkable } from './town-map.js';
 export { WORLD_SIZE, ZONE_CENTERS } from './town-map.js';
 
 /** Fallback point for an empty route: the central crossing of the avenues. */
@@ -10,7 +10,7 @@ const CROSSING = [1040, 784];
 const SPEECH_KINDS = new Set(['talk', 'reply', 'invite', 'accept', 'decline']);
 const FAILURE_KINDS = new Set(['invalid', 'capacity_failure', 'join_failed']);
 export const MIN_ZOOM = 1;
-export const MAX_ZOOM = 3.5;
+export const MAX_ZOOM = 5;
 const clamp = (n, low, high) => Math.max(low, Math.min(high, n));
 
 export const clampZoom = value => clamp(Number.isFinite(value) ? value : 1, MIN_ZOOM, MAX_ZOOM);
@@ -29,9 +29,17 @@ export function characterPosition(agent, frame) {
   return activityAnchor(agent, frame).point;
 }
 
-/** Walking route between two points; the zones are accepted for API stability but not needed. */
+/**
+ * Walking route between two points. A point on furniture (someone asleep in bed)
+ * is joined to the nearest floor tile first. The zones are accepted for API
+ * stability but not needed.
+ */
 export function presentationPath(from, to, _oldZone, _newZone) {
-  return findWalkPath(from, to);
+  const start = isWalkable(...from) ? from : nearestWalkable(from);
+  const end = isWalkable(...to) ? to : nearestWalkable(to);
+  const route = findWalkPath(start, end);
+  if (!route.length) return [];
+  return [...(start === from ? [] : [from.slice()]), ...route, ...(end === to ? [] : [to.slice()])];
 }
 
 /** The point at `progress` (0–1) of the route's total length. */
@@ -63,8 +71,9 @@ export function directionBetween(from, to, fallback = 'down') {
 
 /**
  * What one resident visibly does in this frame, from the settled events of its
- * own proposal: a failed proposal shows no activity; otherwise work, rest or
- * talk (in that order of precedence) or idle.
+ * own proposal: a failed proposal shows no activity; otherwise sleep, shower,
+ * exercise, work or cook, rest or eat, talk (in that order of precedence) or idle.
+ * The night's sleep at the end of each day has no proposal but still shows.
  */
 export function characterPresentation(frame, id) {
   const proposal = frame.trace?.proposals.find(p => p.actor === id);
@@ -73,7 +82,11 @@ export function characterPresentation(frame, id) {
   const failed = results.some(e => FAILURE_KINDS.has(e.type) || e.success === false);
   const delivered = results.find(e => e.success === true && SPEECH_KINDS.has(e.type));
   const work = results.find(e => e.success === true && ['work', 'join'].includes(e.type));
-  const rest = results.some(e => e.success === true && ['rest', 'wait'].includes(e.type));
+  const rest = results.some(e => e.success === true && ['rest', 'wait', 'eat'].includes(e.type));
+  const life = results.find(
+    e => e.success === true && ['sleep', 'shower', 'exercise', 'cook'].includes(e.type),
+  )?.type;
+  const asleep = events.some(e => e.type === 'sleep' && e.automatic && e.participants[0] === id);
   const held = frame.equipment.find(e => e.owner === id) ?? null;
   // A joiner's equipment is the host's, found through the shared invitation.
   const workEquipment =
@@ -82,8 +95,12 @@ export function characterPresentation(frame, id) {
       events.find(e => e.type === 'work' && e.invitationId === work.invitationId)?.equipmentId);
 
   let pose = 'idle';
-  if (!failed) {
-    if (work) pose = workEquipment?.startsWith('camera') || held?.type === 'camera' ? 'camera' : 'work';
+  if (asleep || life === 'sleep') pose = 'sleep';
+  else if (!failed) {
+    if (life === 'shower') pose = 'shower';
+    else if (life === 'exercise') pose = 'exercise';
+    else if (work) pose = workEquipment?.startsWith('camera') || held?.type === 'camera' ? 'camera' : 'work';
+    else if (life === 'cook') pose = 'work';
     else if (rest) pose = 'rest';
     else if (delivered) pose = 'talk';
   }

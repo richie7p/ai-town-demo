@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { ZONES } from '../src/config.js';
 import { createWorld, step } from '../src/engine.js';
 import { propose } from '../src/policy.js';
 import { viewFrame } from '../src/presentation.js';
@@ -60,14 +61,21 @@ test('the full 10-day run has finite display geometry and presentation never cha
     for (const agent of frame.agents) {
       const position = characterPosition(agent, frame);
       assertPoint(position);
-      assert.ok(isWalkable(...position), `resident ${agent.id} has a blocked anchor at tick ${tick}`);
       const display = characterPresentation(frame, agent.id);
-      assert.ok(['idle', 'talk', 'rest', 'work', 'camera'].includes(display.pose));
+      assert.ok(
+        ['idle', 'talk', 'rest', 'work', 'camera', 'sleep', 'shower', 'exercise'].includes(display.pose),
+      );
+      // Only a sleeper lies on furniture (in bed); everyone else stands or sits on a walkable tile.
+      if (display.pose !== 'sleep')
+        assert.ok(isWalkable(...position), `resident ${agent.id} has a blocked anchor at tick ${tick}`);
       if (previous) {
         const oldAgent = previous.agents.find(a => a.id === agent.id);
         const from = characterPosition(oldAgent, previous);
         const path = presentationPath(from, position, oldAgent.zone, agent.zone);
-        assertWalkPath(path);
+        assert.ok(path.length, `no route for ${agent.id} at tick ${tick}`);
+        // Getting into or out of bed adds one step from the bed to the floor.
+        const floor = path.filter((point, i) => isWalkable(...point) || (i > 0 && i < path.length - 1));
+        assertWalkPath(floor);
         assert.deepEqual(samplePath(path, 0), from);
         assert.deepEqual(samplePath(path, 1), position);
         for (const progress of [0.1, 0.5, 0.9]) assertPoint(samplePath(path, progress));
@@ -90,7 +98,7 @@ test('the full 10-day run has finite display geometry and presentation never cha
 });
 
 test('only delivered utterances become bubbles or talking poses, including when replaying a past step', () => {
-  const initial = inZone('home');
+  const initial = inZone('living');
   initial.agents.find(a => a.id === 'A03').zone = 'workshop';
   const actual = '這是真正送出的對話',
     rejected = '這句未送達不可展示';
@@ -131,7 +139,7 @@ test('only delivered utterances become bubbles or talking poses, including when 
 });
 
 test('all eight residents can enter and leave every district without crossing walls or furniture', () => {
-  const zones = ['home', 'workshop', 'plaza', 'studio'];
+  const zones = Object.keys(ZONES);
   const frames = Object.fromEntries(zones.map(zone => [zone, viewFrame(inZone(zone))]));
   for (const origin of zones)
     for (const destination of zones) {
@@ -244,7 +252,7 @@ test('only consecutive frames from the same run animate, and camera/geometry lim
   assert.equal(isContinuousFrame(first, viewFrame(step(createWorld({ seed: 42 })))), false);
   assert.equal(isContinuousFrame(first, viewFrame(step(createWorld({ capacity: 8 })))), false);
   assert.equal(clampZoom(-1), 1);
-  assert.equal(clampZoom(10), 3.5);
+  assert.equal(clampZoom(10), 5);
   assert.equal(clampZoom(1.75), 1.75);
   for (const value of [NaN, Infinity, undefined]) assert.equal(clampZoom(value), 1);
   for (const center of Object.values(ZONE_CENTERS)) assertPoint(center);

@@ -146,18 +146,25 @@ test('reply at exactly two ticks is valid, but a third-tick reply is expired', (
   assert.ok(expired.events.some(e => e.type === 'invalid' && e.tick === 4));
 });
 
-test('cross-day reply counts completion day and keeps original initiation day', () => {
+test('nightfall sends everyone to their private bedroom, so a last-slot message cannot be answered next morning', () => {
   let s = world();
   s.tick = 11;
-  s = step(s, [p('A01', 'talk', { target: 'A02' })]);
+  s = step(s, [p('A01', 'talk', { target: 'A02' }), borrow('A03')]);
+  assert.ok(s.agents.every(a => a.zone === 'bedroom'));
+  assert.equal(s.events.filter(e => e.type === 'sleep' && e.automatic).length, 8);
+  assert.ok(
+    s.equipment.every(e => e.owner === null),
+    'equipment goes back at night',
+  );
+  assert.ok(s.agents.every(a => a.needs.energy === 100));
+  assert.equal(s.conversations[0].closedTick, 12);
   s = step(s, [answer(s)]);
-  assert.equal(s.events.find(e => e.type === 'interaction').day, 2);
-  assert.equal(s.events.find(e => e.type === 'initiation').initiatedDay, 1);
+  assert.equal(measure(s).interactionDays, 0);
+  assert.ok(s.events.some(e => e.type === 'invalid' && e.participants[0] === 'A02'));
 });
-
 test('reply uses pre-move location then departure closes the conversation', () => {
   let s = step(world(), [p('A01', 'talk', { target: 'A02' })]);
-  s = step(s, [answer(s), p('A01', 'move', { destination: 'home' })]);
+  s = step(s, [answer(s), p('A01', 'move', { destination: 'living' })]);
   assert.equal(measure(s).interactionDays, 1);
   assert.equal(s.conversations[0].closedTick, 2);
 });
@@ -175,7 +182,7 @@ test('conversation closes after two empty ticks; reopening requires an empty tic
 
 test('roles cannot see unseen events or cite memories absent from their prompt', () => {
   let s = world();
-  s.agents[7].zone = 'home';
+  s.agents[7].zone = 'living';
   s = step(s, [p('A01', 'talk', { target: 'A02', text: '工坊的訊息' })]);
   assert.equal(
     observe(s, 'A08').provided.some(e => e.text === '工坊的訊息'),

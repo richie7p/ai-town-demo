@@ -3,7 +3,7 @@
 // A replay file keeps every proposal. Importing re-settles those proposals with
 // the engine (the policy is never run again) and requires every checksum, the
 // event log and the decision trace to match exactly before anything is shown.
-import { VERSION, DAYS, TICKS_PER_DAY, TOTAL_TICKS } from './config.js';
+import { VERSION, POLICY, DAYS, TICKS_PER_DAY, TOTAL_TICKS } from './config.js';
 import { createWorld, step } from './engine.js';
 
 export const REPLAY_FORMAT = 'ai-town-replay-v1';
@@ -34,6 +34,10 @@ export function exportRun(state) {
  * validated, so a broken import can never partially replace what is on screen.
  */
 export function replayRun(data, onStep = null) {
+  if (data?.format === REPLAY_FORMAT && data.engineVersion && data.engineVersion !== VERSION)
+    throw new Error(
+      `這份紀錄來自 ${data.engineVersion} 版引擎，本版（${VERSION}）加入了生活起居規則，無法重播舊紀錄`,
+    );
   const supported =
     data?.format === REPLAY_FORMAT &&
     data.engineVersion === VERSION &&
@@ -41,7 +45,7 @@ export function replayRun(data, onStep = null) {
     data.frames.length <= TOTAL_TICKS;
   if (!supported) throw new Error('不支援的回放檔案或版本');
   const { days, ticksPerDay, policy } = data.config ?? {};
-  if (days !== DAYS || ticksPerDay !== TICKS_PER_DAY || policy !== 'rules-demo-v1')
+  if (days !== DAYS || ticksPerDay !== TICKS_PER_DAY || policy !== POLICY)
     throw new Error('回放設定與本版不符');
 
   let state = createWorld(data.config);

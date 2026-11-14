@@ -9,7 +9,7 @@
 import { createCanvas, fillBox, fillOval, fillPath, tileNoise } from './pixel-canvas.js';
 import { registerResidentAssets } from './resident-art.js';
 import { detailFurniture, detailGround, detailTree, drawDetailedWall } from './environment-detail.js';
-import { WORLD_SIZE, ZONE_CENTERS, MAP_ROOMS, MAP_TILES, MAP_WALLS, MAP_OBJECTS } from './town-map.js';
+import { WORLD_SIZE, ZONE_CENTERS, MAP_ROOMS, MAP_BUILDINGS, MAP_TILES, MAP_WALLS, MAP_OBJECTS, MAP_COLUMNS, MAP_ROWS, TILE_SIZE } from './town-map.js';
 
 const BACKGROUND_KEY = 'town-walkable-floor-v6';
 // Small props shared by several pieces of furniture.
@@ -273,6 +273,185 @@ function furniture(c, o) {
       fillBox(c, w / 2 - 1, h / 2 - 41, 2, 13, '#e1ece0');
       break;
     }
+    // Bedroom
+    case 'wardrobe': {
+      fillBox(c, 1, -30, w - 2, h + 28, edge);
+      fillBox(c, 3, -28, w - 6, h + 22, '#c99a6c');
+      fillBox(c, w / 2 - 1, -26, 2, h + 18, '#8d6a4f');
+      fillBox(c, w / 2 - 5, h / 2 - 14, 2, 6, '#f1d6a0');
+      fillBox(c, w / 2 + 3, h / 2 - 14, 2, 6, '#f1d6a0');
+      fillBox(c, 2, -32, w - 4, 4, '#e2c79b');
+      fillBox(c, 3, h - 6, 4, 6, edge);
+      fillBox(c, w - 7, h - 6, 4, 6, edge);
+      break;
+    }
+    case 'desk': {
+      box(0, -6, w, h + 6, '#c9a477');
+      fillBox(c, 10, -4, 18, 13, '#5f6f6a');
+      fillBox(c, 12, -2, 14, 8, ['#9fc0b8', '#c3b2d4', '#b8cf9a', '#e0c08e'][(o.tone || 0) % 4]);
+      fillBox(c, 36, 2, 12, 9, '#f3ead2');
+      fillBox(c, 38, 4, 8, 1, '#a49279');
+      fillBox(c, 38, 7, 6, 1, '#a49279');
+      fillBox(c, 54, -10, 3, 14, '#6f6a58');
+      fillBox(c, 49, -14, 11, 5, '#e9c56f');
+      break;
+    }
+    // Living room
+    case 'tv': {
+      box(0, 0, w, h, '#a98563');
+      fillBox(c, 18, -46, w - 36, 48, '#2f3a3a');
+      fillBox(c, 22, -42, w - 44, 40, '#5d8fa0');
+      fillBox(c, 26, -38, 30, 4, '#9cc6cf');
+      fillBox(c, 26, -30, 18, 3, '#9cc6cf');
+      fillBox(c, w / 2 - 6, 2, 12, 4, '#2f3a3a');
+      fillBox(c, 6, 4, 10, 14, '#7d8d84');
+      fillBox(c, w - 16, 4, 10, 14, '#7d8d84');
+      break;
+    }
+    case 'sofa': {
+      const tone = (o.tone || 0) % 2 ? '#86a394' : '#7d9b8c';
+      fillBox(c, 0, 8, w, 24, '#55705f');
+      fillBox(c, 1, 6, w - 2, 18, tone);
+      fillBox(c, 2, 8, w - 4, 2, '#a8c2b2');
+      fillBox(c, 0, 22, w, 12, '#4b6355');
+      fillBox(c, 0, 22, w, 2, '#6c8a78');
+      break;
+    }
+    case 'lamp': {
+      fillBox(c, 11, 24, 10, 5, '#5d5a4f');
+      fillBox(c, 15, -22, 3, 48, '#6f6a58');
+      fillBox(c, 7, -36, 19, 15, '#efd9a2');
+      fillBox(c, 9, -34, 15, 3, '#fff1c8');
+      break;
+    }
+    // Kitchen
+    case 'fridge': {
+      fillBox(c, 2, -40, w - 4, h + 38, '#9aa7a5');
+      fillBox(c, 4, -38, w - 8, h + 32, '#e8eeec');
+      fillBox(c, 4, -10, w - 8, 2, '#aebab8');
+      fillBox(c, w - 9, -32, 2, 14, '#8c9997');
+      fillBox(c, w - 9, -4, 2, 10, '#8c9997');
+      fillBox(c, 8, -30, 8, 6, '#f2c6a4');
+      fillBox(c, 9, -20, 6, 5, '#b8d6a6');
+      break;
+    }
+    case 'stove': {
+      box(0, -8, w, h + 8, '#c9c3b4');
+      for (const x of [6, 36]) {
+        fillBox(c, x, -4, 22, 14, '#3f4744');
+        fillOval(c, x + 11, 3, 7, 5, '#5d6763');
+        fillOval(c, x + 11, 3, 3, 2, '#3f4744');
+      }
+      fillBox(c, 9, -16, 16, 13, '#b55e45');
+      fillBox(c, 7, -17, 20, 3, '#8f4636');
+      fillBox(c, 14, -21, 6, 3, '#6f3529');
+      fillBox(c, 41, -10, 12, 8, '#7d8a87');
+      fillBox(c, 53, -8, 8, 2, '#5d6763');
+      for (let i = 0; i < 4; i++) fillBox(c, 8 + i * 14, h - 4, 4, 3, '#59605c');
+      break;
+    }
+    case 'sink': {
+      box(0, -6, w, h + 6, '#cfc9ba');
+      for (let x = 6; x + 22 <= w - 4; x += 30) {
+        fillBox(c, x, -2, 22, 12, '#8fa6a8');
+        fillBox(c, x + 2, 0, 18, 8, '#c9dfe2');
+        fillBox(c, x + 9, -12, 3, 9, '#8c9997');
+        fillBox(c, x + 6, -12, 9, 2, '#8c9997');
+      }
+      break;
+    }
+    case 'diningTable': {
+      fillBox(c, 6, h - 4, 6, 10, edge);
+      fillBox(c, w - 12, h - 4, 6, 10, edge);
+      fillBox(c, 0, 2, w, h - 2, '#7d5f48');
+      fillBox(c, 2, 0, w - 4, h - 6, '#c99a68');
+      fillBox(c, 2, 0, w - 4, 3, '#e2bd8a');
+      for (let i = 0; i < 4; i++)
+        for (const y of [10, h - 20]) {
+          fillOval(c, 16 + i * 32, y, 9, 6, '#f6f1e3');
+          fillOval(c, 16 + i * 32, y, 5, 3, ['#e3b673', '#9bbf7f', '#d98b6c', '#e8d39a'][(i + (y > 20 ? 1 : 0)) % 4]);
+        }
+      fillOval(c, w / 2, h / 2 - 3, 15, 8, '#b55e45');
+      fillOval(c, w / 2, h / 2 - 4, 11, 5, '#e59a5b');
+      fillBox(c, w / 2 - 30, h / 2 - 6, 6, 7, '#f6f1e3');
+      fillBox(c, w / 2 + 24, h / 2 - 6, 6, 7, '#9fc7d6');
+      break;
+    }
+    // Bathroom
+    case 'shower': {
+      fillBox(c, 0, -26, w, 28, '#9fbcc3');
+      fillBox(c, 2, -24, w - 4, 24, '#c9dfe4');
+      for (let x = 2; x < w - 2; x += 10) fillBox(c, x, -24, 1, 24, '#a9c7cd');
+      fillBox(c, 2, -13, w - 4, 1, '#a9c7cd');
+      fillBox(c, 2, 0, w - 4, h - 4, '#dde9ea');
+      fillBox(c, 6, 4, w - 12, h - 12, '#c3d7d9');
+      fillOval(c, w / 2, h / 2, 3, 2, '#8aa3a7');
+      fillBox(c, w / 2 - 2, -22, 4, 10, '#8c9997');
+      fillBox(c, w / 2 - 7, -14, 14, 3, '#8c9997');
+      fillBox(c, -1, -8, w + 2, 3, '#8c9997');
+      const curtain = ['#e7b3a8', '#a8c8e7', '#d9cf9b'][Math.floor(o.x / 96) % 3];
+      fillBox(c, 0, -6, 20, h - 2, curtain);
+      for (let x = 2; x < 20; x += 5) fillBox(c, x, -6, 1, h - 2, '#00000018');
+      break;
+    }
+    case 'toilet': {
+      fillBox(c, 8, -16, 16, 13, '#c5d0ce');
+      fillBox(c, 9, -15, 14, 10, '#eef3f2');
+      fillOval(c, 16, 13, 10, 12, '#c5d0ce');
+      fillOval(c, 16, 12, 9, 10, '#eef3f2');
+      fillOval(c, 16, 12, 6, 7, '#c9dbdd');
+      break;
+    }
+    // Gym
+    case 'treadmill': {
+      fillBox(c, 3, 4, w - 6, h - 6, '#2f3533');
+      fillBox(c, 6, 8, w - 12, h - 14, '#59625f');
+      for (let y = 10; y < h - 8; y += 6) fillBox(c, 6, y, w - 12, 1, '#4a5250');
+      fillBox(c, 3, -6, 3, 14, '#4b5553');
+      fillBox(c, w - 6, -6, 3, 14, '#4b5553');
+      fillBox(c, 1, -16, w - 2, 11, '#4b5553');
+      fillBox(c, 4, -14, w - 8, 6, '#7fb0b8');
+      break;
+    }
+    case 'mat': {
+      const tone = ['#7fa98a', '#b98ea4', '#8a9fc2'][(o.tone || 0) % 3];
+      fillBox(c, 6, 4, w - 12, h - 8, tone);
+      fillBox(c, 6, 4, w - 12, 2, '#ffffff44');
+      fillBox(c, 5, 0, w - 10, 7, tone);
+      fillBox(c, 5, 5, w - 10, 2, '#00000022');
+      break;
+    }
+    case 'weights': {
+      box(0, -10, w, h + 10, '#7c7f86');
+      for (const y of [-6, 6])
+        for (let x = 8; x + 14 <= w - 4; x += 18) {
+          fillBox(c, x, y, 4, 9, '#33373b');
+          fillBox(c, x + 10, y, 4, 9, '#33373b');
+          fillBox(c, x + 4, y + 3, 6, 3, '#a2a8ae');
+        }
+      break;
+    }
+    // Outdoors
+    case 'parkBench': {
+      // A one-tile bench seen from above; the backrest is behind the sitter.
+      const back = o.facing === 'left' ? w - 7 : o.facing === 'right' ? 2 : null;
+      fillBox(c, 3, 26, 4, 6, edge);
+      fillBox(c, w - 7, 26, 4, 6, edge);
+      fillBox(c, 1, 6, w - 2, 22, '#7d5f48');
+      for (let i = 0; i < 3; i++) fillBox(c, 2, 8 + i * 7, w - 4, 5, '#c49a69');
+      if (back !== null) {
+        fillBox(c, back, -8, 5, 34, '#7d5f48');
+        fillBox(c, back + 1, -6, 3, 30, '#a97f55');
+      } else {
+        fillBox(c, 1, 24, w - 2, 8, '#7d5f48');
+        fillBox(c, 2, 25, w - 4, 4, '#a97f55');
+      }
+      break;
+    }
+    case 'tree': {
+      detailTree(c, 16, 28, 0.78, o.x + o.y);
+      break;
+    }
   }
 }
 /** One 32×32 ground tile of kind `k` at tile (x, y), varied per tile by tileNoise. */
@@ -291,8 +470,58 @@ function floor(c, x, y, k) {
     }
     return;
   }
-  if (k === 'wood' || k === 'cafe') {
-    q(0, 0, 32, 32, k === 'wood' ? (n > 0.5 ? '#cda97a' : '#d7b68a') : n > 0.5 ? '#bf966c' : '#c7a177');
+  if (k === 'meadow') {
+    q(0, 0, 32, 32, n > 0.6 ? '#97b77f' : n > 0.3 ? '#9fbd86' : '#a5c28c');
+    q(4 + Math.floor(n * 17), 6, 2, 3, '#bccf9a');
+    q(18, 21 + Math.floor(n * 6), 3, 2, '#86a873');
+    if (n > 0.82) {
+      q(9, 18, 3, 3, n > 0.92 ? '#f2cfd9' : '#f3e6a2');
+      q(10, 19, 1, 1, '#ffffff');
+    }
+    return;
+  }
+  if (k === 'trail') {
+    q(0, 0, 32, 32, n > 0.5 ? '#d6c49c' : '#dccba5');
+    q(5 + Math.floor(n * 15), 9, 3, 2, '#bfae86');
+    q(18, 22 - Math.floor(n * 8), 2, 2, '#c8b68e');
+    return;
+  }
+  if (k === 'water') {
+    q(0, 0, 32, 32, n > 0.5 ? '#74a9bb' : '#7cb0c0');
+    q(3 + Math.floor(n * 12), 8, 11, 1, '#a9d0da');
+    q(14, 19 + Math.floor(n * 7), 13, 1, '#a9d0da');
+    q(6, 27, 6, 1, '#94c3d0');
+    return;
+  }
+  if (k === 'bridge') {
+    q(0, 0, 32, 32, '#b99a73');
+    for (let xx = 0; xx < 32; xx += 8) q(xx, 0, 1, 32, '#8e7253');
+    q(0, 0, 32, 2, '#8e7253');
+    return;
+  }
+  if (k === 'kitchen') {
+    q(0, 0, 32, 32, (x + y) % 2 ? '#efe6d2' : '#e0d0b0');
+    q(0, 0, 32, 1, '#cdbd9c');
+    q(0, 0, 1, 32, '#cdbd9c');
+    return;
+  }
+  if (k === 'bath') {
+    q(0, 0, 32, 32, n > 0.5 ? '#d4e5e7' : '#d9e9ea');
+    for (let i = 0; i < 32; i += 8) {
+      q(i, 0, 1, 32, '#bcd3d6');
+      q(0, i, 32, 1, '#bcd3d6');
+    }
+    return;
+  }
+  if (k === 'gym') {
+    q(0, 0, 32, 32, n > 0.5 ? '#8e8ca6' : '#9493ac');
+    q(3 + Math.floor(n * 20), 7, 2, 2, '#a7a6bd');
+    q(16, 18 + Math.floor(n * 8), 2, 2, '#7f7d97');
+    return;
+  }
+  if (k === 'wood' || k === 'cafe' || k === 'carpet') {
+    const base = { wood: ['#cda97a', '#d7b68a'], cafe: ['#bf966c', '#c7a177'], carpet: ['#c99f73', '#d1a97e'] }[k];
+    q(0, 0, 32, 32, n > 0.5 ? base[0] : base[1]);
     for (let yy = 0; yy < 32; yy += 8) {
       q(0, yy, 32, 1, '#ab865c');
       q(((y * 4 + yy / 8) % 2) * 16, yy, 1, 8, '#ab865c');
@@ -342,51 +571,47 @@ function rug(c, x, y, w, h, col) {
 /** Ground texture: tiles, the tree border, potted plants, rugs, door mats, the avenue sign and furniture shadows. */
 function ground(c) {
   c.imageSmoothingEnabled = false;
-  for (let y = 0; y < 48; y++) for (let x = 0; x < 64; x++) floor(c, x, y, MAP_TILES[y][x]);
-  for (let x = 64; x < 2048; x += 97) {
-    tree(c, x, 58, 0.62);
-    tree(c, x + 12, 1512, 0.65);
+  for (let y = 0; y < MAP_ROWS; y++) for (let x = 0; x < MAP_COLUMNS; x++) floor(c, x, y, MAP_TILES[y][x]);
+  // Trees only grow on plain grass (never on roads, floors or under walls).
+  const onGrass = (x, y) => MAP_TILES[Math.floor(y / TILE_SIZE)]?.[Math.floor(x / TILE_SIZE)] === 'grass';
+  const treeOnGrass = (x, y, s) => onGrass(x, y) && tree(c, x, y, s);
+  for (let x = 40; x < WORLD_SIZE.width; x += 97) {
+    treeOnGrass(x, 30, 0.6);
+    treeOnGrass(x + 12, WORLD_SIZE.height - 20, 0.65);
   }
-  for (let y = 190; y < 1420; y += 110) {
-    tree(c, 40, y, 0.65);
-    tree(c, 2012, y, 0.68);
-  }
+  for (let y = 120; y < WORLD_SIZE.height - 60; y += 110) treeOnGrass(20, y, 0.62);
   for (const [x, y, s] of [
-    [940, 214, 0.76],
-    [1100, 350, 0.72],
-    [940, 515, 0.72],
-    [1101, 1120, 0.76],
-    [940, 1275, 0.72],
-    [1100, 1450, 0.6],
+    [1700, 690, 0.76],
+    [1880, 880, 0.72],
+    [2330, 770, 0.74],
+    [2470, 1000, 0.7],
+    [2140, 1080, 0.66],
+    [1700, 1060, 0.7],
+    [2560, 640, 0.62],
   ])
-    tree(c, x, y, s);
-  for (const [x, y] of [
-    [128, 678],
-    [848, 678],
-    [1175, 678],
-    [1902, 678],
-    [140, 878],
-    [850, 878],
-    [1172, 878],
-    [1888, 878],
-  ]) {
+    treeOnGrass(x, y, s);
+  // Potted shrubs along the north side of the avenue.
+  for (const x of [120, 760, 1000, 1300, 1460, 1760, 2400, 2560]) {
+    const y = 36 * TILE_SIZE + 26;
+    if (!onGrass(x, y - 6)) continue;
     fillBox(c, x - 10, y - 4, 20, 5, '#7d8268');
     fillBox(c, x - 6, y - 20, 12, 18, '#a6ad89');
     plant(c, x, y - 17, 0.7);
   }
-  rug(c, 288, 384, 416, 192, '#9aa78c');
-  rug(c, 416, 1088, 160, 256, '#b5a487');
-  rug(c, 1472, 1024, 128, 352, '#9baea9');
+  rug(c, 200, 488, 240, 200, '#9aa78c');
+  rug(c, 416, 1504, 160, 256, '#b5a487');
+  rug(c, 2048, 1440, 128, 288, '#9baea9');
   for (const room of MAP_ROOMS)
     for (const [dx, dy] of room.doors) fillBox(c, dx * 32, dy * 32 + 3, 32, 4, '#f1d19a');
   c.textAlign = 'center';
   c.font = 'bold 17px "Microsoft JhengHei", sans-serif';
   c.fillStyle = '#687e62';
-  c.fillText('日 和 步 道', 1024, 726);
+  c.fillText('日 和 大 街', 1600, 1240);
   c.font = '12px sans-serif';
-  c.fillText('A LITTLE TOWN, EVERYDAY STORIES', 1024, 747);
+  c.fillText('A LITTLE TOWN, EVERYDAY STORIES', 1600, 1261);
   for (const o of MAP_OBJECTS)
-    fillOval(c, o.x + o.width / 2 + 3, o.y + o.height - 2, o.width / 2 + 4, Math.min(12, o.height / 4), '#53654b25');
+    if (!o.passable && o.kind !== 'tree')
+      fillOval(c, o.x + o.width / 2 + 3, o.y + o.height - 2, o.width / 2 + 4, Math.min(12, o.height / 4), '#53654b25');
 }
 /** Walls as foreground layers: each continuous run along one edge becomes one texture. */
 function wallLayers(scene) {
@@ -422,7 +647,7 @@ function wallLayers(scene) {
 }
 /** A green nameplate above each building's door. */
 function nameplateLayers(scene) {
-  return MAP_ROOMS.map(room => {
+  return MAP_BUILDINGS.map(room => {
     const measure = createCanvas(1, 1).getContext('2d');
     measure.font = '600 16px "Microsoft JhengHei", sans-serif';
     const width = Math.max(182, Math.ceil(measure.measureText(room.name).width) + 38),
@@ -483,10 +708,17 @@ export function registerTownAssets(scene, agents) {
     backgroundSize: WORLD_SIZE,
     foreground,
     ambient: {
-      fountain: { x: 208, y: 749, radius: 42 },
-      lamps: [{ x: 925, y: 690 }, { x: 1122, y: 690 }, { x: 925, y: 873 }, { x: 1122, y: 873 }],
+      fountain: { x: 1184, y: 1584, radius: 70 },
+      lamps: [
+        { x: 1500, y: 1170 },
+        { x: 1700, y: 1170 },
+        { x: 1500, y: 1330 },
+        { x: 1700, y: 1330 },
+        { x: 560, y: 1170 },
+        { x: 2240, y: 1170 },
+      ],
     },
-    equipmentLabels: { workshop: { x: 1214, y: 542 }, studio: { x: 1214, y: 1339 } },
+    equipmentLabels: { workshop: { x: 1790, y: 542 }, studio: { x: 1790, y: 1755 } },
     zoneCenters: ZONE_CENTERS,
     ...registerResidentAssets(scene, agents),
   };

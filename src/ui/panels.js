@@ -1,6 +1,6 @@
 // HTML for the side panels, the interaction network and the evidence dialog.
 // Every function is pure: it receives what to show and returns markup.
-import { ZONES, ACTION_NAMES, dayOf, slotOf } from '../config.js';
+import { ZONES, ACTION_NAMES, NEEDS, dayOf, slotOf } from '../config.js';
 import { residentPortrait } from '../resident-art.js';
 import { escapeHTML as esc, percent } from './dom.js';
 import { EVENT_LABELS, FAILURE_KINDS, LIFE_KINDS, conditionName, equipmentLabel } from './labels.js';
@@ -20,12 +20,30 @@ const intro = text => `<p class="memory-intro">${text}</p>`;
  * @property {object[]} pastEvents every event up to the cursor (not only the frame's recent ones)
  */
 
-/** Portrait, name and description of the selected resident. */
+/** Three labelled bars (飽足、精力、清潔), marked low under 30. */
+export function needsHTML(needs) {
+  return (
+    '<div class="needs">' +
+    Object.entries(NEEDS)
+      .map(([key, { name }]) => {
+        const value = needs?.[key] ?? 0;
+        return (
+          `<div class="need need-${key}${value < 30 ? ' low' : ''}"><span>${name}</span>` +
+          `<span class="need-bar"><i style="width:${value}%"></i></span><b>${value}</b></div>`
+        );
+      })
+      .join('') +
+    '</div>'
+  );
+}
+
+/** Portrait, name, description and current needs of the selected resident. */
 export function profileHTML(agent) {
   return (
     `<div class="agent-profile"><div class="portrait">${portrait(agent)}</div>` +
     `<div><h2>${esc(agent.name)}<small>${agent.id}</small></h2><p>${esc(agent.interests)}</p></div></div>` +
-    `<p class="agent-style">${esc(agent.style)}</p>`
+    `<p class="agent-style">${esc(agent.style)}</p>` +
+    needsHTML(agent.needs)
   );
 }
 

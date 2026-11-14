@@ -449,8 +449,8 @@ function rug(c, x, y, w, h, color) {
 }
 /** Floor decals over the ground texture: rugs, door mats and paving wear. */
 export function detailGround(c, tiles, rooms) {
-  for (let y = 0; y < 48; y++)
-    for (let x = 0; x < 64; x++)
+  for (let y = 0; y < tiles.length; y++)
+    for (let x = 0; x < tiles[y].length; x++)
       if (tiles[y][x] === 'grass') {
         for (let i = 0; i < 4; i++) {
           const xx = x * 32 + 2 + Math.floor(tileNoise(x + i, y) * 27),
@@ -460,17 +460,19 @@ export function detailGround(c, tiles, rooms) {
         }
         for (const [dx, dy, side] of [[-1, 0, 'l'], [1, 0, 'r'], [0, -1, 't'], [0, 1, 'b']]) {
           const neighbor = tiles[y + dy]?.[x + dx];
-          if (!neighbor || neighbor === 'grass' || neighbor === 'wall') continue;
+          if (!neighbor || neighbor === 'grass' || neighbor === 'wall' || neighbor === 'meadow') continue;
           if (side === 'l' || side === 'r') {
             fillBox(c, x * 32 + (side === 'l' ? 0 : 30), y * 32, 2, 32, '#5f8458');
           } else fillBox(c, x * 32, y * 32 + (side === 't' ? 0 : 30), 32, 2, '#5f8458');
         }
       }
-  rug(c, 288, 384, 416, 192, '#6d937d');
-  rug(c, 416, 1088, 160, 256, '#a98565');
-  rug(c, 1472, 1024, 128, 352, '#789b94');
-  for (let i = 0; i < 4; i++)
-    rug(c, (4 + i * 6) * 32 + 4, 8 * 32 + 8, 152, 20, ['#a88973', '#8f9c79', '#8d98a4', '#b5a171'][i]);
+  rug(c, 200, 488, 240, 200, '#6d937d');
+  rug(c, 416, 1504, 160, 256, '#a98565');
+  rug(c, 2048, 1440, 128, 288, '#789b94');
+  // A small rug beside each bed.
+  const bedsideColors = ['#a88973', '#8f9c79', '#8d98a4', '#b5a171'];
+  for (const room of rooms.filter(r => r.zone === 'bedroom'))
+    rug(c, (room.x + 3) * 32 + 2, (room.y === 2 ? 5 : room.y + 4) * 32 + 4, 56, 40, bedsideColors[room.bedroom % 4]);
   for (const room of rooms) {
     const px = room.x * 32,
       py = room.y * 32;
@@ -498,6 +500,26 @@ export function detailTree(c, x, y, s = 1, seed = 0) {
   }
 }
 /** A window with a frame and curtains, tinted per district. */
+/** Curtain colour beside the windows and the stripe along the top of the walls, per room. */
+const CURTAINS = {
+  bedroom: '#b98877',
+  living: '#b98877',
+  kitchen: '#c7a26c',
+  bathroom: '#8fb3bb',
+  gym: '#9c9cb8',
+  studio: '#8c9ca8',
+  plaza: '#769782',
+};
+const WALL_ACCENTS = {
+  bedroom: '#9a8576',
+  living: '#829a7c',
+  kitchen: '#a39570',
+  bathroom: '#7a9aa0',
+  gym: '#8686a0',
+  plaza: '#628c78',
+  studio: '#7a9396',
+  workshop: '#7b9782',
+};
 function windowArt(c, x, y, zone) {
   inset(c, x, y, 57, 34, '#a7c5bb', '#ebddba', '#5c7e72');
   fillBox(c, x + 4, y + 4, 49, 24, '#b9d9cd');
@@ -506,8 +528,7 @@ function windowArt(c, x, y, zone) {
   fillBox(c, x + 27, y + 2, 3, 28, '#e9dfbf');
   fillBox(c, x + 3, y + 16, 50, 2, '#e9dfbf');
   fillBox(c, x + 4, y + 3, 19, 2, '#f6f0d5');
-  const tone =
-    zone === 'home' ? '#b98877' : zone === 'studio' ? '#8c9ca8' : zone === 'plaza' ? '#769782' : '#99aa83';
+  const tone = CURTAINS[zone] ?? '#99aa83';
   for (const xx of [x - 3, x + 49]) {
     fillBox(c, xx, y - 2, 11, 28, tone);
     fillBox(c, xx + 2, y, 2, 25, '#ffffff3d');
@@ -515,7 +536,7 @@ function windowArt(c, x, y, zone) {
   }
   fillBox(c, x - 5, y - 4, 67, 3, '#7d654b');
   inset(c, x - 4, y + 30, 65, 6, '#b9966b', '#e7cca0', '#7e6c4d');
-  if (zone === 'home' || zone === 'plaza') plant(c, x + 43, y + 26, 0.36);
+  if (['bedroom', 'living', 'kitchen', 'plaza'].includes(zone)) plant(c, x + 43, y + 26, 0.36);
 }
 /**
  * One run of wall tiles, `w` pixels wide, rising `up` pixels above its tile row.
@@ -524,14 +545,7 @@ function windowArt(c, x, y, zone) {
 export function drawDetailedWall(c, w, up, first) {
   const north = first.edge === 'north',
     side = first.edge === 'side' || first.edge === 'inside',
-    accent =
-      first.zone === 'home'
-        ? '#829a7c'
-        : first.zone === 'plaza'
-          ? '#628c78'
-          : first.zone === 'studio'
-            ? '#7a9396'
-            : '#7b9782';
+    accent = WALL_ACCENTS[first.zone] ?? '#7b9782';
   fillBox(c, 0, up, w, 32, '#526d59');
   fillBox(c, 2, up + 2, w - 4, 25, '#ded9bc');
   fillBox(c, 2, up + 21, w - 4, 7, '#b4b491');

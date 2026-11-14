@@ -21,5 +21,13 @@ export const motionRate = duration =>
 export const walkDuration = (distance, duration) =>
   Math.max(MIN_WALK_MS, (Math.max(0, distance) / WALK_SPEED) * 1000) / motionRate(duration);
 
-/** Seated residents always show the rest pose, whatever they are doing. */
-export const seatedPose = (presentation, anchor) => (anchor?.seated ? 'rest' : presentation.pose);
+/**
+ * The pose to show: a furniture pose from the anchor (sleeping in bed, showering,
+ * running on a treadmill) wins; seated residents show the rest pose; otherwise
+ * the pose of what they did.
+ */
+export const seatedPose = (presentation, anchor) => {
+  if (presentation.pose === 'sleep') return 'sleep';
+  if (anchor?.pose === 'sleep' || anchor?.pose === 'shower' || anchor?.pose === 'run') return anchor.pose;
+  return anchor?.seated ? 'rest' : presentation.pose;
+};

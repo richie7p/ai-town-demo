@@ -17,7 +17,7 @@ test('demo decisions are reproducible without mutating the observed world', () =
 test("private events unavailable to a role cannot change that role's decision", () => {
   const state = createWorld({ seed: 18 });
   state.agents.forEach(a => {
-    a.zone = a.id === 'A08' ? 'studio' : 'home';
+    a.zone = a.id === 'A08' ? 'studio' : 'living';
   });
   state.tick = 2;
   const secretWorld = structuredClone(state);
@@ -56,9 +56,13 @@ test('a full demo shows daily movement and varied activities with auditable memo
     'join',
     'rest',
     'walk',
+    'cook',
+    'eat',
+    'shower',
+    'exercise',
   ])
     assert.ok(actions.has(action), action);
-  for (const destination of ['home', 'plaza', 'workshop', 'studio'])
+  for (const destination of ['living', 'kitchen', 'bathroom', 'gym', 'plaza', 'workshop', 'studio', 'park'])
     assert.ok(
       proposals.some(p => p.destination === destination),
       destination,
@@ -87,7 +91,7 @@ test('a full demo shows daily movement and varied activities with auditable memo
   assert.ok(!state.events.some(e => e.type === 'invalid' && e.reason === '引用未實際提供的記憶'));
 
   const data = exportRun(state);
-  assert.equal(data.config.policy, 'rules-demo-v1');
+  assert.equal(data.config.policy, 'life-rules-v2');
   assert.equal(data.sampleType, 'synthetic-engine-demo');
   // Saved proposals, including prose and citations, remain the replay authority.
   assert.deepEqual(replayRun(data).events, state.events);

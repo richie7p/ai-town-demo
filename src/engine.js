@@ -1,14 +1,23 @@
-// The V5 research engine: a deterministic, synchronous world clock.
+// The research engine: a deterministic, synchronous world clock.
 //
 // Each tick freezes a snapshot, collects at most one proposal per resident and
 // settles them all together. Every eligibility check reads the start-of-tick
 // snapshot, so the order in which proposals are written can never matter;
 // only the seeded priority order decides who wins a contested resource.
 //
+// demo-0.2.0 keeps the V5 rules (conversations, invitations, equipment,
+// cooperation) and adds daily life: three needs that fall every slot, meals
+// cooked in the shared kitchen, three showers, naps and exercise. After the last
+// slot of each day night falls: everyone goes back to their own bedroom and
+// sleeps, and borrowed equipment is returned. Bedrooms are private: nobody else
+// sees what happens there and nobody can be spoken to there.
+//
 // The order of settlement phases, the text and the field order of every event
 // are part of the replay contract (events are hashed and compared verbatim).
 import {
   VERSION,
+  POLICY,
+  NEEDS,
   DAYS,
   TICKS_PER_DAY,
   TOTAL_TICKS,
@@ -19,10 +28,10 @@ import {
   shuffled,
   pairKey,
   dayOf,
+  randomAt,
 } from './config.js';
 import { observe } from './memory.js';
 
-const STARTING_ZONES = ['home', 'home', 'plaza', 'plaza', 'workshop', 'workshop', 'studio', 'studio'];
 const CAPACITIES = [2, 3, 8];
 const MAX_SEED = 999999999;
 const MAX_FIELD_LENGTH = 500;
@@ -47,18 +56,49 @@ const PROPOSAL_FIELDS = [
   'reason',
 ];
 const equipmentName = type => (type === 'tools' ? '製作工具' : '攝影設備');
+/** A cooked pot feeds this many people, from the next slot until the end of the day. */
+const MEAL_SERVINGS = 3;
+/** Below this level a need stops strenuous actions (work, joining, exercise). */
+const EXHAUSTED = 5;
+const STRENUOUS = new Set(['work', 'join', 'exercise']);
+/** Need changes for a successful action, applied after the slot's decay. */
+const NEED_EFFECTS = {
+  eat: { fullness: 55 },
+  sleep: { energy: 45 },
+  rest: { energy: 12 },
+  shower: { hygiene: 75 },
+  exercise: { energy: -8, hygiene: -12 },
+  work: { energy: -3 },
+  join: { energy: -3 },
+  cook: { fullness: 40, hygiene: -2 }, // the cook eats while cooking
+  walk: { energy: -1 },
+};
+const clampNeed = value => Math.max(0, Math.min(100, Math.round(value)));
+const isPrivate = zone => !!ZONES[zone]?.private;
 
 export function createWorld({ seed = 20261103, capacity = 2 } = {}) {
   if (!Number.isSafeInteger(seed) || seed < 0 || seed > MAX_SEED)
     throw new Error('種子須為 0–999999999 的整數');
   if (!CAPACITIES.includes(capacity)) throw new Error('設備數須為 2、3 或 8');
   const personas = shuffled(PERSONAS, `${seed}:personas`);
-  const locations = shuffled(STARTING_ZONES, `${seed}:locations`);
+  // Everyone wakes up in their own bedroom (bedroom n belongs to resident n),
+  // somewhat hungry and rested, with seeded differences.
+  const startingNeeds = i => ({
+    fullness: clampNeed(55 + 20 * randomAt(seed, i, 'start-fullness')),
+    energy: clampNeed(75 + 20 * randomAt(seed, i, 'start-energy')),
+    hygiene: clampNeed(50 + 30 * randomAt(seed, i, 'start-hygiene')),
+  });
   return {
     version: VERSION,
-    config: { seed, capacity, days: DAYS, ticksPerDay: TICKS_PER_DAY, policy: 'rules-demo-v1' },
+    config: { seed, capacity, days: DAYS, ticksPerDay: TICKS_PER_DAY, policy: POLICY },
     tick: 0,
-    agents: personas.map((persona, i) => ({ ...persona, id: `A0${i + 1}`, zone: locations[i] })),
+    agents: personas.map((persona, i) => ({
+      ...persona,
+      id: `A0${i + 1}`,
+      zone: 'bedroom',
+      bedroom: i,
+      needs: startingNeeds(i),
+    })),
     equipment: ['workshop', 'studio'].flatMap(zone => {
       const type = ZONES[zone].resource;
       return Array.from({ length: capacity }, (_, i) => ({
@@ -73,6 +113,7 @@ export function createWorld({ seed = 20261103, capacity = 2 } = {}) {
     conversations: [],
     messages: [],
     invitations: [],
+    meals: [],
     events: [],
     trace: [],
     lastPairTick: {},
@@ -90,6 +131,7 @@ export function worldHash(state) {
     conversations: state.conversations,
     messages: state.messages,
     invitations: state.invitations,
+    meals: state.meals,
     lastPairTick: state.lastPairTick,
   });
 }
@@ -115,7 +157,9 @@ export function step(state, rawProposals = []) {
   settleJoins(settlement, cooperations);
   closeDueInvitations(settlement, cooperations);
   releaseEquipment(settlement);
+  if (tick % TICKS_PER_DAY === 0) nightfall(settlement);
   closeConversations(next, tick);
+  updateNeeds(settlement);
 
   next.trace.push({
     tick,
@@ -146,11 +190,12 @@ function copyWorld(state, tick) {
   return {
     ...state,
     tick,
-    agents: state.agents.map(a => ({ ...a })),
+    agents: state.agents.map(a => ({ ...a, needs: { ...a.needs } })),
     equipment: state.equipment.map(e => ({ ...e })),
     conversations: structuredClone(state.conversations),
     messages: state.messages.map(m => ({ ...m })),
     invitations: state.invitations.map(i => ({ ...i })),
+    meals: state.meals.map(m => ({ ...m })),
     events: [...state.events],
     trace: [...state.trace],
     lastPairTick: { ...state.lastPairTick },
@@ -187,7 +232,9 @@ function createSettlement(state, next, proposals, observations) {
     emit(type, participants, text, extra = {}) {
       const origin = agents[participants[0]];
       const visibleTo = origin
-        ? state.agents.filter(a => a.zone === origin.zone || participants.includes(a.id)).map(a => a.id)
+        ? state.agents
+            .filter(a => participants.includes(a.id) || (a.zone === origin.zone && !isPrivate(origin.zone)))
+            .map(a => a.id)
         : [];
       const event = {
         id: `e${String(next.events.length + 1).padStart(5, '0')}`,
@@ -218,9 +265,9 @@ function createSettlement(state, next, proposals, observations) {
       });
     },
 
-    /** Both residents exist, differ, and stood in the same zone at the start of the tick. */
+    /** Both residents exist, differ, and stood in the same shared zone at the start of the tick. */
     together(a, b) {
-      return a !== b && agents[b] && agents[a].zone === agents[b].zone;
+      return a !== b && agents[b] && agents[a].zone === agents[b].zone && !isPrivate(agents[a].zone);
     },
 
     /** Equipment held at the start of the tick. */
@@ -248,11 +295,14 @@ function createSettlement(state, next, proposals, observations) {
   return settlement;
 }
 
-function rejectMalformedProposals({ proposals, observations, fail }) {
+function rejectMalformedProposals({ proposals, observations, agents, fail }) {
   for (const proposal of proposals) {
+    const needs = agents[proposal.actor].needs;
     if (!Object.hasOwn(ACTION_NAMES, proposal.action)) fail(proposal, '未知或缺少行動');
     else if (proposal.citedMemoryIds.some(id => !observations[proposal.actor].providedIds.includes(id)))
       fail(proposal, '引用未實際提供的記憶');
+    else if (STRENUOUS.has(proposal.action) && (needs.energy < EXHAUSTED || needs.fullness < EXHAUSTED))
+      fail(proposal, needs.energy < EXHAUSTED ? '太累了，需要先休息' : '太餓了，需要先吃東西');
   }
 }
 
@@ -389,7 +439,13 @@ function settleIndividualActions(settlement, priority) {
     rest: settleIdle,
     walk: settleIdle,
     wait: settleIdle,
+    cook: settleCook,
+    eat: settleEat,
+    shower: settleShower,
+    sleep: settleSleep,
+    exercise: settleExercise,
   };
+  settlement.showersTaken = 0;
   for (const id of priority) {
     if (settlement.failed.has(id)) continue;
     const proposal = settlement.byActor[id];
@@ -531,6 +587,127 @@ function settleIdle({ observations, emit, heldBy }, proposal, actor) {
   });
 }
 
+/** Cooking in the kitchen makes one pot that others can eat from the next slot on. */
+function settleCook({ next, tick, emit, fail }, proposal, actor) {
+  if (actor.zone !== 'kitchen') {
+    fail(proposal, '只能在廚房煮飯');
+    return;
+  }
+  const meal = {
+    id: `m${next.meals.length + 1}`,
+    cook: actor.id,
+    tick,
+    day: dayOf(tick),
+    servings: MEAL_SERVINGS,
+  };
+  next.meals.push(meal);
+  emit('cook', [actor.id], proposal.text || `${actor.name}煮了一鍋飯菜，夠三個人吃`, {
+    proposalId: proposal.id,
+    mealId: meal.id,
+    servings: MEAL_SERVINGS,
+    success: true,
+  });
+}
+
+/**
+ * Eating: the café always serves a simple meal; in the kitchen one needs a pot
+ * cooked earlier today with servings left (earliest pot first, in priority order).
+ */
+function settleEat({ state, next, tick, agents, emit, fail }, proposal, actor) {
+  if (ZONES[actor.zone]?.servesMeals) {
+    emit('eat', [actor.id], proposal.text || `${actor.name}在咖啡館吃了一份簡餐`, {
+      proposalId: proposal.id,
+      mealId: null,
+      success: true,
+    });
+    return;
+  }
+  if (actor.zone !== 'kitchen') {
+    fail(proposal, '這裡沒有東西可以吃');
+    return;
+  }
+  const pot = next.meals.find(
+    m => m.servings > 0 && m.tick < tick && m.day === dayOf(tick) && state.meals.some(old => old.id === m.id),
+  );
+  if (!pot) {
+    fail(proposal, '廚房沒有煮好的飯菜');
+    return;
+  }
+  pot.servings--;
+  const cook = agents[pot.cook];
+  const whose = pot.cook === actor.id ? '自己' : cook.name;
+  // The cook is a participant, so a shared meal is visible to them wherever they are.
+  const participants = pot.cook === actor.id ? [actor.id] : [actor.id, pot.cook];
+  emit('eat', participants, proposal.text || `${actor.name}吃了${whose}煮的飯`, {
+    proposalId: proposal.id,
+    mealId: pot.id,
+    success: true,
+  });
+}
+
+/** The bathroom has three showers; later residents in priority order find them taken. */
+function settleShower(settlement, proposal, actor) {
+  const { emit, fail } = settlement;
+  if (actor.zone !== 'bathroom') {
+    fail(proposal, '只能在浴室洗澡');
+    return;
+  }
+  if (settlement.showersTaken >= ZONES.bathroom.showers) {
+    fail(proposal, '淋浴間都有人在用');
+    return;
+  }
+  settlement.showersTaken++;
+  emit('shower', [actor.id], proposal.text || `${actor.name}洗了個澡`, {
+    proposalId: proposal.id,
+    success: true,
+  });
+}
+
+/** A nap in one's own bedroom (the night's sleep is automatic, see nightfall). */
+function settleSleep({ emit, fail }, proposal, actor) {
+  if (actor.zone !== 'bedroom') {
+    fail(proposal, '只能回自己的臥室睡覺');
+    return;
+  }
+  emit('sleep', [actor.id], proposal.text || `${actor.name}小睡了一會兒`, {
+    proposalId: proposal.id,
+    success: true,
+  });
+}
+
+function settleExercise({ emit, fail }, proposal, actor) {
+  if (actor.zone !== 'gym') {
+    fail(proposal, '只能在健身房運動');
+    return;
+  }
+  emit('exercise', [actor.id], proposal.text || `${actor.name}在健身房運動`, {
+    proposalId: proposal.id,
+    success: true,
+  });
+}
+
+/**
+ * Every need falls each slot; a successful action then restores (or costs) its
+ * share. After the night everyone wakes with full energy and an emptier stomach.
+ */
+function updateNeeds({ next, tick, newEvents }) {
+  const succeeded = new Map(
+    newEvents.filter(e => e.success === true && e.proposalId).map(e => [e.participants[0], e.type]),
+  );
+  const endOfDay = tick % TICKS_PER_DAY === 0;
+  for (const agent of next.agents) {
+    const action = succeeded.get(agent.id);
+    for (const [need, { decay }] of Object.entries(NEEDS)) {
+      const effect = NEED_EFFECTS[action]?.[need] ?? 0;
+      agent.needs[need] = clampNeed(agent.needs[need] - decay + effect);
+    }
+    if (endOfDay) {
+      agent.needs.energy = 100;
+      agent.needs.fullness = clampNeed(agent.needs.fullness - 10);
+    }
+  }
+}
+
 /**
  * Work with held, usable equipment. With an accepted invitation that falls due now
  * and a matching join from the invitee, the work becomes a cooperation.
@@ -639,10 +816,30 @@ function releaseEquipment({ next, tick, byActor, failed, emit }) {
   }
 }
 
+/**
+ * After the last slot of the day everyone returns to their own bedroom and sleeps
+ * (whatever they proposed); equipment still on loan goes back to its cabinet.
+ */
+function nightfall({ next, emit, agents }) {
+  for (const item of next.equipment.filter(e => e.owner !== null)) {
+    emit('release', [item.owner], '夜深了，設備放回器材櫃', {
+      equipmentId: item.id,
+      resourceType: item.type,
+      automatic: true,
+    });
+    Object.assign(item, { owner: null, usableFrom: null, until: null });
+  }
+  for (const agent of next.agents) {
+    agent.zone = 'bedroom';
+    emit('sleep', [agent.id], `${agents[agent.id].name}回到房間，睡著了`, { automatic: true, success: true });
+  }
+}
+
 function closeConversations(next, tick) {
   for (const conversation of next.conversations.filter(c => c.closedTick === null)) {
     const [a, b] = conversation.members.map(id => next.agents.find(agent => agent.id === id));
-    if (a.zone !== b.zone || tick - conversation.lastMessageTick >= CONVERSATION_IDLE_TICKS)
+    const apart = a.zone !== b.zone || isPrivate(a.zone);
+    if (apart || tick - conversation.lastMessageTick >= CONVERSATION_IDLE_TICKS)
       conversation.closedTick = tick;
   }
 }
