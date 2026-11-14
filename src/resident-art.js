@@ -1,9 +1,16 @@
-// Original pixel characters for the town; no third-party character art.
-// Every 64 × 96 frame uses one 32 × 48 logical grid and a shared foot anchor.
-// Frames are drawn together so identity, palette and scale cannot drift between poses.
+// The eight residents' pixel art: original characters, no third-party art.
+//
+// Every 64×96 atlas frame is a 32×48 logical grid scaled ×2, with a shared foot
+// anchor. All 192 frames of a resident are drawn by the same code from one
+// palette, so identity, colours and scale cannot drift between poses. Frame
+// numbers and clips are defined in resident-motion.js. The body parts below take
+// (c, p, pose, side, back): context, palette, pose, side view, back view.
+// The art is hand-laid pixel data, excluded from Prettier.
 import { RESIDENT_FRAME_COUNT } from './resident-motion.js';
+import { createCanvas, fillBox, fillPixelPolygon, pixelLine, shade } from './pixel-canvas.js';
 export const RESIDENT_FRAME = Object.freeze({ width: 64, height: 96 });
 
+/** Per-resident look: skin, hair, clothes and accessories (keyed by persona name). */
 const PEOPLE = {
   小禾: {
     id: 'he',
@@ -97,74 +104,6 @@ const PEOPLE = {
 const FALLBACK = PEOPLE['小禾'];
 const portraitCache = new Map();
 const INK = '#263d43';
-const clamp = n => Math.max(0, Math.min(255, n));
-const shade = (hex, n) =>
-  '#' +
-  hex
-    .slice(1)
-    .match(/../g)
-    .map(v =>
-      clamp(parseInt(v, 16) + n)
-        .toString(16)
-        .padStart(2, '0'),
-    )
-    .join('');
-const rect = (c, x, y, w, h, color) => {
-  c.fillStyle = color;
-  c.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
-};
-function canvas(w, h) {
-  const c = document.createElement('canvas');
-  c.width = w;
-  c.height = h;
-  return c;
-}
-// Scan-line polygons and pixel lines keep diagonal contours crisp too. Canvas
-// imageSmoothingEnabled alone does not turn antialiasing off for filled paths.
-function polygon(c, points, color) {
-  const min = Math.floor(Math.min(...points.map(p => p[1]))),
-    max = Math.ceil(Math.max(...points.map(p => p[1])));
-  for (let y = min; y < max; y++) {
-    const hits = [];
-    for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
-      const [x1, y1] = points[j],
-        [x2, y2] = points[i],
-        scan = y + 0.5;
-      if ((y1 <= scan && y2 > scan) || (y2 <= scan && y1 > scan))
-        hits.push(x1 + ((scan - y1) * (x2 - x1)) / (y2 - y1));
-    }
-    hits.sort((a, b) => a - b);
-    for (let i = 0; i < hits.length; i += 2) {
-      const x = Math.ceil(hits[i] - 0.5),
-        end = Math.ceil(hits[i + 1] - 0.5);
-      if (end > x) rect(c, x, y, end - x, 1, color);
-    }
-  }
-}
-function line(c, a, b, color, width = 1) {
-  let x = Math.round(a[0]),
-    y = Math.round(a[1]);
-  const ex = Math.round(b[0]),
-    ey = Math.round(b[1]),
-    dx = Math.abs(ex - x),
-    dy = -Math.abs(ey - y),
-    sx = x < ex ? 1 : -1,
-    sy = y < ey ? 1 : -1;
-  let error = dx + dy;
-  for (;;) {
-    rect(c, x, y, width, width, color);
-    if (x === ex && y === ey) break;
-    const e = 2 * error;
-    if (e >= dy) {
-      error += dy;
-      x += sx;
-    }
-    if (e <= dx) {
-      error += dx;
-      y += sy;
-    }
-  }
-}
 // A resident's colours are fixed for a town, while the atlas asks for them once per frame.
 const paletteCache = new Map();
 function palette(agent) {
@@ -187,10 +126,16 @@ function palette(agent) {
   }
   return colors;
 }
+/** Texture key for a resident's atlas; changes when the person or their colour changes. */
 function identity(agent) {
   const p = palette(agent);
   return `resident-detail-v4-${p.id}-${p.main.slice(1).toLowerCase()}`;
 }
+/**
+ * What atlas frame `frame` shows: direction, motion, animation phase and, for
+ * sitting, how far down (0–1). Frames 0–47 are the original poses (drawn with the
+ * older single-step style); 48 and up are the smooth motion clips.
+ */
 function poseFor(frame) {
   const directions = ['down', 'left', 'right', 'up'];
   if (frame >= 176)
@@ -259,13 +204,15 @@ function poseFor(frame) {
   if (frame < 28) return { direction: 'down', motion: 'talk', phase: frame - 26 };
   return { direction: 'down', motion: 'camera', phase: frame - 28 };
 }
+// Body parts, drawn back to front: legs, back hair, torso, head, arms.
 function boot(c, x, y, p, side = false) {
-  rect(c, x + 1, y, 5, 2, p.shoes);
-  rect(c, x, y + 2, side ? 8 : 7, 3, p.shoes);
-  rect(c, x, y + 4, side ? 8 : 7, 1, '#c5b99e');
-  rect(c, x + 1, y + 1, 3, 1, shade(p.shoes, 30));
-  if (!side) rect(c, x + 2, y + 2, 3, 1, '#a59880');
+  fillBox(c, x + 1, y, 5, 2, p.shoes);
+  fillBox(c, x, y + 2, side ? 8 : 7, 3, p.shoes);
+  fillBox(c, x, y + 4, side ? 8 : 7, 1, '#c5b99e');
+  fillBox(c, x + 1, y + 1, 3, 1, shade(p.shoes, 30));
+  if (!side) fillBox(c, x + 2, y + 2, 3, 1, '#a59880');
 }
+/** Legs: the motion clips use naturalLegs(); the original poses (frames 0–47) are drawn here. */
 function legs(c, p, pose, side, back) {
   if (pose.smooth) {
     naturalLegs(c, p, pose, side, back);
@@ -274,17 +221,17 @@ function legs(c, p, pose, side, back) {
   const stride = pose.motion === 'walk' ? [0, 2, 0, -2][pose.phase] : 0;
   if (pose.motion === 'rest') {
     if (side) {
-      rect(c, 12, 34, 9, 5, p.pants);
-      rect(c, 7, 37, 9, 4, p.pants);
-      rect(c, 7, 39, 4, 4, p.deep);
-      rect(c, 14, 39, 4, 4, p.pants);
+      fillBox(c, 12, 34, 9, 5, p.pants);
+      fillBox(c, 7, 37, 9, 4, p.pants);
+      fillBox(c, 7, 39, 4, 4, p.deep);
+      fillBox(c, 14, 39, 4, 4, p.pants);
       boot(c, 5, 42, p, true);
       boot(c, 12, 42, p, true);
     } else {
-      rect(c, 9, 34, 14, 5, p.pants);
-      rect(c, 9, 38, 5, 6, p.pants);
-      rect(c, 18, 38, 5, 6, shade(p.pants, -12));
-      rect(c, 10, 39, 2, 3, shade(p.pants, 21));
+      fillBox(c, 9, 34, 14, 5, p.pants);
+      fillBox(c, 9, 38, 5, 6, p.pants);
+      fillBox(c, 18, 38, 5, 6, shade(p.pants, -12));
+      fillBox(c, 10, 39, 2, 3, shade(p.pants, 21));
       boot(c, 8, 42, p);
       boot(c, 18, 42, p);
     }
@@ -293,48 +240,28 @@ function legs(c, p, pose, side, back) {
   if (side) {
     const far = 15 - stride,
       near = 14 + stride;
-    polygon(
+    fillPixelPolygon(
       c,
-      [
-        [13, 33],
-        [19, 33],
-        [far + 5, 39],
-        [far + 4, 45],
-        [far - 1, 45],
-        [far - 1, 40],
-      ],
+      [[13, 33], [19, 33], [far + 5, 39], [far + 4, 45], [far - 1, 45], [far - 1, 40]],
       shade(p.pants, -16),
     );
     boot(c, far - 3, 42, p, true);
-    polygon(
-      c,
-      [
-        [12, 33],
-        [18, 33],
-        [near + 5, 39],
-        [near + 3, 45],
-        [near - 2, 45],
-        [near - 3, 40],
-      ],
-      p.pants,
-    );
-    rect(c, near, 36, 2, 6, shade(p.pants, 20));
+    fillPixelPolygon(c, [[12, 33], [18, 33], [near + 5, 39], [near + 3, 45], [near - 2, 45], [near - 3, 40]], p.pants);
+    fillBox(c, near, 36, 2, 6, shade(p.pants, 20));
     boot(c, near - 4, 42, p, true);
   } else {
-    for (const [x, step, shift] of [
-      [10, stride, 6],
-      [18, -stride, -8],
-    ]) {
+    for (const [x, step, shift] of [[10, stride, 6], [18, -stride, -8]]) {
       const footY = 42 + Math.min(0, step);
-      rect(c, x, 33, 5, footY - 31, p.pants);
-      rect(c, x + 1, 35, 2, footY - 35, shade(p.pants, shift + 16));
-      rect(c, x, footY - 1, 5, 2, shade(p.pants, -18));
+      fillBox(c, x, 33, 5, footY - 31, p.pants);
+      fillBox(c, x + 1, 35, 2, footY - 35, shade(p.pants, shift + 16));
+      fillBox(c, x, footY - 1, 5, 2, shade(p.pants, -18));
       boot(c, x - 1, footY, p);
-      if (back) rect(c, x, footY + 2, 4, 1, shade(p.shoes, -12));
+      if (back) fillBox(c, x, footY + 2, 4, 1, shade(p.shoes, -12));
     }
-    rect(c, 14, 33, 4, 3, shade(p.pants, -18));
+    fillBox(c, 14, 33, 4, 3, shade(p.pants, -18));
   }
 }
+/** Legs for the motion clips, including folded knees while sitting. */
 function naturalLegs(c, p, pose, side, back) {
   const seated = pose.motion === 'rest' ? 1 : pose.motion === 'sit' ? pose.seated : 0;
   if (seated) {
@@ -342,7 +269,7 @@ function naturalLegs(c, p, pose, side, back) {
       knee = 38 + Math.round(seated * 2);
     if (side) {
       const front = 13 - Math.round(seated * 6);
-      polygon(
+      fillPixelPolygon(
         c,
         [
           [12, hip],
@@ -356,7 +283,7 @@ function naturalLegs(c, p, pose, side, back) {
         ],
         p.pants,
       );
-      polygon(
+      fillPixelPolygon(
         c,
         [
           [17, hip],
@@ -370,25 +297,14 @@ function naturalLegs(c, p, pose, side, back) {
         ],
         shade(p.pants, -16),
       );
-      rect(c, front + 1, knee, 2, 4, shade(p.pants, 21));
+      fillBox(c, front + 1, knee, 2, 4, shade(p.pants, 21));
       boot(c, front - 2, 42, p, true);
       boot(c, front + 6, 42, p, true);
     } else {
-      polygon(
-        c,
-        [
-          [9, hip],
-          [23, hip],
-          [23, knee],
-          [20, knee + 2],
-          [12, knee + 2],
-          [9, knee],
-        ],
-        p.pants,
-      );
-      rect(c, 9, knee, 5, 46 - knee, p.pants);
-      rect(c, 18, knee, 5, 46 - knee, shade(p.pants, -14));
-      rect(c, 10, knee + 1, 2, Math.max(1, 44 - knee), shade(p.pants, 20));
+      fillPixelPolygon(c, [[9, hip], [23, hip], [23, knee], [20, knee + 2], [12, knee + 2], [9, knee]], p.pants);
+      fillBox(c, 9, knee, 5, 46 - knee, p.pants);
+      fillBox(c, 18, knee, 5, 46 - knee, shade(p.pants, -14));
+      fillBox(c, 10, knee + 1, 2, Math.max(1, 44 - knee), shade(p.pants, 20));
       boot(c, 8, 42, p);
       boot(c, 18, 42, p);
     }
@@ -405,354 +321,201 @@ function naturalLegs(c, p, pose, side, back) {
   if (side) {
     const far = 15 - stride,
       near = 14 + stride;
-    polygon(
+    fillPixelPolygon(
       c,
-      [
-        [13, 33],
-        [19, 33],
-        [far + 5, 38],
-        [far + 4, 45 - farLift],
-        [far - 1, 45 - farLift],
-        [far - 1, 39],
-      ],
+      [[13, 33], [19, 33], [far + 5, 38], [far + 4, 45 - farLift], [far - 1, 45 - farLift], [far - 1, 39]],
       shade(p.pants, -16),
     );
     boot(c, far - 3, 42 - farLift, p, true);
-    polygon(
+    fillPixelPolygon(
       c,
-      [
-        [12, 33],
-        [18, 33],
-        [near + 5, 38],
-        [near + 3, 45 - nearLift],
-        [near - 2, 45 - nearLift],
-        [near - 3, 39],
-      ],
+      [[12, 33], [18, 33], [near + 5, 38], [near + 3, 45 - nearLift], [near - 2, 45 - nearLift], [near - 3, 39]],
       p.pants,
     );
-    rect(c, near, 36, 2, Math.max(2, 6 - nearLift), shade(p.pants, 20));
+    fillBox(c, near, 36, 2, Math.max(2, 6 - nearLift), shade(p.pants, 20));
     boot(c, near - 4, 42 - nearLift, p, true);
   } else {
-    for (const [x, lift, knee] of [
-      [10, nearLift, stride],
-      [18, farLift, -stride],
-    ]) {
+    for (const [x, lift, knee] of [[10, nearLift, stride], [18, farLift, -stride]]) {
       const shift = Math.abs(knee) === 2 ? Math.sign(knee) : 0,
         y = 42 - lift;
-      polygon(
+      fillPixelPolygon(
         c,
-        [
-          [x, 33],
-          [x + 5, 33],
-          [x + 5 + shift, 38],
-          [x + 5, y + 2],
-          [x, y + 2],
-          [x + shift, 38],
-        ],
+        [[x, 33], [x + 5, 33], [x + 5 + shift, 38], [x + 5, y + 2], [x, y + 2], [x + shift, 38]],
         p.pants,
       );
-      rect(c, x + 1 + shift, 35, 2, Math.max(2, y - 35), shade(p.pants, x === 10 ? 21 : 6));
+      fillBox(c, x + 1 + shift, 35, 2, Math.max(2, y - 35), shade(p.pants, x === 10 ? 21 : 6));
       boot(c, x - 1, y, p);
-      if (back) rect(c, x, y + 2, 4, 1, shade(p.shoes, -12));
+      if (back) fillBox(c, x, y + 2, 4, 1, shade(p.shoes, -12));
     }
-    rect(c, 14, 33, 4, 3, shade(p.pants, -18));
+    fillBox(c, 14, 33, 4, 3, shade(p.pants, -18));
   }
 }
+/** Hair that falls behind the body (drawn before the torso). */
 function hairBack(c, p, side) {
   if (['bob', 'ponytail', 'bun'].includes(p.hairStyle)) {
-    polygon(
+    fillPixelPolygon(
       c,
       side
-        ? [
-            [11, 8],
-            [24, 8],
-            [26, 15],
-            [25, 23],
-            [22, 26],
-            [13, 24],
-          ]
-        : [
-            [7, 8],
-            [25, 8],
-            [27, 15],
-            [25, 25],
-            [22, 27],
-            [9, 25],
-            [5, 18],
-          ],
+        ? [[11, 8], [24, 8], [26, 15], [25, 23], [22, 26], [13, 24]]
+        : [[7, 8], [25, 8], [27, 15], [25, 25], [22, 27], [9, 25], [5, 18]],
       p.hairDark,
     );
   }
   if (p.hairStyle === 'ponytail') {
     const x = side ? 25 : 24;
-    polygon(
-      c,
-      [
-        [x, 12],
-        [x + 3, 12],
-        [x + 5, 16],
-        [x + 3, 25],
-        [x + 1, 29],
-        [x - 1, 24],
-        [x, 18],
-      ],
-      p.hair,
-    );
-    rect(c, x + 1, 17, 1, 7, p.hairLight);
-    rect(c, x - 1, 14, 4, 2, p.accent);
+    fillPixelPolygon(c, [[x, 12], [x + 3, 12], [x + 5, 16], [x + 3, 25], [x + 1, 29], [x - 1, 24], [x, 18]], p.hair);
+    fillBox(c, x + 1, 17, 1, 7, p.hairLight);
+    fillBox(c, x - 1, 14, 4, 2, p.accent);
   }
 }
+/** Torso by garment type, with accessories such as straps, scarves and bags. */
 function torso(c, p, side, back) {
   const x = side ? 11 : 9,
     w = side ? 11 : 14;
-  polygon(
-    c,
-    [
-      [x + 2, 22],
-      [x + w - 2, 22],
-      [x + w + 1, 26],
-      [x + w, 35],
-      [x, 35],
-      [x - 1, 26],
-    ],
-    p.deep,
-  );
-  rect(c, x, 25, w, 8, p.main);
-  rect(c, x + 1, 25, 2, 7, p.light);
-  rect(c, x + w - 2, 26, 2, 8, p.deep);
-  rect(c, x, 34, w, 2, p.deep);
+  fillPixelPolygon(c, [[x + 2, 22], [x + w - 2, 22], [x + w + 1, 26], [x + w, 35], [x, 35], [x - 1, 26]], p.deep);
+  fillBox(c, x, 25, w, 8, p.main);
+  fillBox(c, x + 1, 25, 2, 7, p.light);
+  fillBox(c, x + w - 2, 26, 2, 8, p.deep);
+  fillBox(c, x, 34, w, 2, p.deep);
   if (side) {
-    rect(c, 12, 23, 4, 2, '#eadcbb');
+    fillBox(c, 12, 23, 4, 2, '#eadcbb');
     if (p.garment === 'overalls') {
-      rect(c, 12, 24, 2, 11, p.accent);
-      rect(c, 13, 28, 7, 7, '#41685c');
-      rect(c, 15, 29, 4, 3, '#719280');
+      fillBox(c, 12, 24, 2, 11, p.accent);
+      fillBox(c, 13, 28, 7, 7, '#41685c');
+      fillBox(c, 15, 29, 4, 3, '#719280');
     }
     if (['coat', 'cardigan'].includes(p.garment)) {
-      rect(c, 11, 34, 11, 3, p.main);
-      rect(c, 11, 37, 11, 1, p.deep);
-      rect(c, 20, 27, 1, 9, p.light);
+      fillBox(c, 11, 34, 11, 3, p.main);
+      fillBox(c, 11, 37, 11, 1, p.deep);
+      fillBox(c, 20, 27, 1, 9, p.light);
     }
     if (['strap', 'satchel', 'bookbag'].includes(p.accessory)) {
-      line(c, [18, 23], [12, 33], '#d1b98a');
-      rect(c, 10, 31, 5, 7, '#8d694a');
-      rect(c, 10, 31, 5, 2, '#bc986a');
-      rect(c, 12, 34, 1, 1, '#e5cb91');
+      pixelLine(c, [18, 23], [12, 33], '#d1b98a');
+      fillBox(c, 10, 31, 5, 7, '#8d694a');
+      fillBox(c, 10, 31, 5, 2, '#bc986a');
+      fillBox(c, 12, 34, 1, 1, '#e5cb91');
     }
-    if (p.garment === 'knit') for (let y = 26; y < 33; y += 3) rect(c, 14, y, 3, 1, p.accent);
+    if (p.garment === 'knit') for (let y = 26; y < 33; y += 3) fillBox(c, 14, y, 3, 1, p.accent);
     return;
   }
   if (back) {
-    rect(c, 11, 24, 10, 1, p.light);
-    line(c, [16, 26], [16, 33], p.deep);
+    fillBox(c, 11, 24, 10, 1, p.light);
+    pixelLine(c, [16, 26], [16, 33], p.deep);
     if (['overalls', 'vest'].includes(p.garment)) {
-      rect(c, 11, 23, 2, 9, p.accent);
-      rect(c, 19, 23, 2, 9, p.accent);
-      rect(c, 11, 30, 10, 5, p.deep);
-      rect(c, 12, 31, 8, 1, p.light);
+      fillBox(c, 11, 23, 2, 9, p.accent);
+      fillBox(c, 19, 23, 2, 9, p.accent);
+      fillBox(c, 11, 30, 10, 5, p.deep);
+      fillBox(c, 12, 31, 8, 1, p.light);
     }
     if (['coat', 'cardigan'].includes(p.garment)) {
-      rect(c, 9, 34, 14, 4, p.main);
-      rect(c, 9, 37, 14, 1, p.deep);
-      rect(c, 16, 34, 1, 3, p.deep);
+      fillBox(c, 9, 34, 14, 4, p.main);
+      fillBox(c, 9, 37, 14, 1, p.deep);
+      fillBox(c, 16, 34, 1, 3, p.deep);
     }
     if (['strap', 'satchel', 'bookbag'].includes(p.accessory)) {
-      line(c, [10, 23], [22, 34], p.accent);
-      rect(c, 18, 29, 7, 8, '#77563f');
-      rect(c, 19, 29, 6, 3, '#b48c61');
-      rect(c, 21, 33, 2, 1, '#e7c78a');
+      pixelLine(c, [10, 23], [22, 34], p.accent);
+      fillBox(c, 18, 29, 7, 8, '#77563f');
+      fillBox(c, 19, 29, 6, 3, '#b48c61');
+      fillBox(c, 21, 33, 2, 1, '#e7c78a');
     }
     return;
   }
-  polygon(
-    c,
-    [
-      [12, 22],
-      [16, 26],
-      [20, 22],
-    ],
-    '#f2e7ce',
-  );
+  fillPixelPolygon(c, [ [12, 22], [16, 26], [20, 22], ], '#f2e7ce');
   switch (p.garment) {
     case 'overalls':
-      rect(c, 11, 23, 2, 8, p.accent);
-      rect(c, 19, 23, 2, 8, p.accent);
-      rect(c, 11, 28, 10, 7, '#41685c');
-      rect(c, 13, 29, 6, 4, '#6e947b');
-      rect(c, 14, 30, 4, 1, '#a3b08b');
-      rect(c, 11, 27, 2, 1, '#f0ce83');
-      rect(c, 19, 27, 2, 1, '#f0ce83');
+      fillBox(c, 11, 23, 2, 8, p.accent);
+      fillBox(c, 19, 23, 2, 8, p.accent);
+      fillBox(c, 11, 28, 10, 7, '#41685c');
+      fillBox(c, 13, 29, 6, 4, '#6e947b');
+      fillBox(c, 14, 30, 4, 1, '#a3b08b');
+      fillBox(c, 11, 27, 2, 1, '#f0ce83');
+      fillBox(c, 19, 27, 2, 1, '#f0ce83');
       break;
     case 'field':
-      polygon(
-        c,
-        [
-          [10, 23],
-          [14, 26],
-          [14, 34],
-          [10, 34],
-        ],
-        p.light,
-      );
-      polygon(
-        c,
-        [
-          [22, 23],
-          [18, 26],
-          [18, 34],
-          [22, 34],
-        ],
-        p.deep,
-      );
-      rect(c, 15, 26, 2, 8, p.accent);
+      fillPixelPolygon(c, [ [10, 23], [14, 26], [14, 34], [10, 34], ], p.light);
+      fillPixelPolygon(c, [ [22, 23], [18, 26], [18, 34], [22, 34], ], p.deep);
+      fillBox(c, 15, 26, 2, 8, p.accent);
       for (const x of [10, 19]) {
-        rect(c, x, 28, 3, 4, p.deep);
-        rect(c, x, 28, 3, 1, p.accent);
-        rect(c, x + 1, 30, 1, 1, '#eadcbb');
+        fillBox(c, x, 28, 3, 4, p.deep);
+        fillBox(c, x, 28, 3, 1, p.accent);
+        fillBox(c, x + 1, 30, 1, 1, '#eadcbb');
       }
       break;
     case 'jacket':
-      rect(c, 14, 26, 4, 8, '#ded4bb');
-      polygon(
-        c,
-        [
-          [10, 23],
-          [15, 26],
-          [12, 29],
-        ],
-        p.light,
-      );
-      polygon(
-        c,
-        [
-          [22, 23],
-          [17, 26],
-          [20, 29],
-        ],
-        p.light,
-      );
-      rect(c, 10, 32, 3, 1, p.accent);
-      rect(c, 19, 32, 3, 1, p.accent);
+      fillBox(c, 14, 26, 4, 8, '#ded4bb');
+      fillPixelPolygon(c, [ [10, 23], [15, 26], [12, 29], ], p.light);
+      fillPixelPolygon(c, [ [22, 23], [17, 26], [20, 29], ], p.light);
+      fillBox(c, 10, 32, 3, 1, p.accent);
+      fillBox(c, 19, 32, 3, 1, p.accent);
       break;
     case 'cardigan':
-      rect(c, 13, 25, 6, 12, '#eddfc6');
-      rect(c, 12, 25, 1, 12, p.deep);
-      rect(c, 19, 25, 1, 12, p.deep);
-      rect(c, 9, 34, 4, 4, p.main);
-      rect(c, 19, 34, 4, 4, p.main);
-      rect(c, 14, 27, 4, 1, '#bb9d89');
-      for (const y of [27, 31, 35]) rect(c, 20, y, 1, 1, p.accent);
+      fillBox(c, 13, 25, 6, 12, '#eddfc6');
+      fillBox(c, 12, 25, 1, 12, p.deep);
+      fillBox(c, 19, 25, 1, 12, p.deep);
+      fillBox(c, 9, 34, 4, 4, p.main);
+      fillBox(c, 19, 34, 4, 4, p.main);
+      fillBox(c, 14, 27, 4, 1, '#bb9d89');
+      for (const y of [27, 31, 35]) fillBox(c, 20, y, 1, 1, p.accent);
       break;
     case 'coat':
-      polygon(
-        c,
-        [
-          [11, 23],
-          [16, 26],
-          [13, 29],
-          [10, 26],
-        ],
-        '#d9c9a9',
-      );
-      polygon(
-        c,
-        [
-          [21, 23],
-          [17, 26],
-          [20, 29],
-          [23, 26],
-        ],
-        '#b7c9b8',
-      );
-      rect(c, 9, 34, 14, 4, p.main);
-      rect(c, 9, 37, 14, 1, p.deep);
-      rect(c, 16, 27, 1, 10, p.deep);
-      for (const y of [28, 32, 36]) rect(c, 17, y, 1, 1, p.accent);
-      rect(c, 10, 33, 3, 1, p.accent);
-      rect(c, 20, 33, 2, 1, p.accent);
+      fillPixelPolygon(c, [ [11, 23], [16, 26], [13, 29], [10, 26], ], '#d9c9a9');
+      fillPixelPolygon(c, [ [21, 23], [17, 26], [20, 29], [23, 26], ], '#b7c9b8');
+      fillBox(c, 9, 34, 14, 4, p.main);
+      fillBox(c, 9, 37, 14, 1, p.deep);
+      fillBox(c, 16, 27, 1, 10, p.deep);
+      for (const y of [28, 32, 36]) fillBox(c, 17, y, 1, 1, p.accent);
+      fillBox(c, 10, 33, 3, 1, p.accent);
+      fillBox(c, 20, 33, 2, 1, p.accent);
       break;
     case 'vest':
-      rect(c, 13, 25, 6, 10, '#e6d4af');
-      polygon(
-        c,
-        [
-          [10, 23],
-          [14, 26],
-          [13, 34],
-          [9, 35],
-        ],
-        p.light,
-      );
-      polygon(
-        c,
-        [
-          [22, 23],
-          [18, 26],
-          [19, 34],
-          [23, 35],
-        ],
-        p.deep,
-      );
-      rect(c, 10, 30, 3, 3, p.deep);
-      rect(c, 19, 30, 3, 3, p.light);
+      fillBox(c, 13, 25, 6, 10, '#e6d4af');
+      fillPixelPolygon(c, [ [10, 23], [14, 26], [13, 34], [9, 35], ], p.light);
+      fillPixelPolygon(c, [ [22, 23], [18, 26], [19, 34], [23, 35], ], p.deep);
+      fillBox(c, 10, 30, 3, 3, p.deep);
+      fillBox(c, 19, 30, 3, 3, p.light);
       break;
     case 'shirt':
-      polygon(
-        c,
-        [
-          [11, 23],
-          [16, 26],
-          [13, 28],
-        ],
-        p.accent,
-      );
-      polygon(
-        c,
-        [
-          [21, 23],
-          [17, 26],
-          [20, 28],
-        ],
-        p.light,
-      );
-      rect(c, 16, 27, 1, 8, p.deep);
-      for (const y of [28, 31, 34]) rect(c, 17, y, 1, 1, '#e8d3b6');
-      rect(c, 19, 28, 3, 3, p.deep);
-      rect(c, 20, 27, 1, 3, p.accent);
+      fillPixelPolygon(c, [ [11, 23], [16, 26], [13, 28], ], p.accent);
+      fillPixelPolygon(c, [ [21, 23], [17, 26], [20, 28], ], p.light);
+      fillBox(c, 16, 27, 1, 8, p.deep);
+      for (const y of [28, 31, 34]) fillBox(c, 17, y, 1, 1, '#e8d3b6');
+      fillBox(c, 19, 28, 3, 3, p.deep);
+      fillBox(c, 20, 27, 1, 3, p.accent);
       break;
     case 'knit':
-      rect(c, 12, 23, 8, 2, p.accent);
-      rect(c, 9, 33, 14, 2, p.accent);
+      fillBox(c, 12, 23, 8, 2, p.accent);
+      fillBox(c, 9, 33, 14, 2, p.accent);
       for (let x = 11; x < 22; x += 3)
         for (let y = 27; y < 33; y += 3) {
-          rect(c, x, y, 1, 1, p.light);
-          rect(c, x + 1, y + 1, 1, 1, p.deep);
+          fillBox(c, x, y, 1, 1, p.light);
+          fillBox(c, x + 1, y + 1, 1, 1, p.deep);
         }
       break;
   }
   if (!['coat', 'cardigan', 'knit'].includes(p.garment)) {
-    rect(c, 10, 35, 12, 1, '#574f41');
-    rect(c, 15, 34, 2, 2, p.accent);
+    fillBox(c, 10, 35, 12, 1, '#574f41');
+    fillBox(c, 15, 34, 2, 2, p.accent);
   }
   if (['strap', 'satchel', 'bookbag'].includes(p.accessory)) {
-    line(c, [10, 23], [23, 35], '#574b3b', 2);
-    line(c, [10, 23], [23, 35], p.accent);
-    rect(c, 22, 31, 5, 7, '#8d694a');
-    rect(c, 22, 31, 5, 2, '#bc986a');
-    rect(c, 24, 34, 1, 1, '#e5cb91');
+    pixelLine(c, [10, 23], [23, 35], '#574b3b', 2);
+    pixelLine(c, [10, 23], [23, 35], p.accent);
+    fillBox(c, 22, 31, 5, 7, '#8d694a');
+    fillBox(c, 22, 31, 5, 2, '#bc986a');
+    fillBox(c, 24, 34, 1, 1, '#e5cb91');
   }
 }
 function hand(c, x, y, p) {
-  rect(c, x, y, 3, 4, p.skinShadow);
-  rect(c, x, y, 2, 3, p.skin);
-  rect(c, x, y, 1, 2, p.skinLight);
+  fillBox(c, x, y, 3, 4, p.skinShadow);
+  fillBox(c, x, y, 2, 3, p.skin);
+  fillBox(c, x, y, 1, 2, p.skinLight);
 }
 function arm(c, x, y, p, near = false) {
-  rect(c, x, y, 3, 8, near ? p.deep : p.main);
-  rect(c, x, y, 1, 5, near ? p.main : p.light);
-  rect(c, x, y + 7, 3, 1, p.accent);
+  fillBox(c, x, y, 3, 8, near ? p.deep : p.main);
+  fillBox(c, x, y, 1, 5, near ? p.main : p.light);
+  fillBox(c, x, y + 7, 3, 1, p.accent);
   hand(c, x, y + 8, p);
 }
+/** Arms for every motion: swinging, resting, talking, working and holding a camera. */
 function arms(c, p, pose, side, back) {
   const stride =
     pose.motion === 'walk'
@@ -763,12 +526,12 @@ function arms(c, p, pose, side, back) {
   if (pose.motion === 'sit') {
     const lower = Math.round(pose.seated * 2);
     if (side) {
-      rect(c, 16, 25, 3, 7 - lower, p.main);
-      rect(c, 12, 30 - lower, 6, 3, p.deep);
+      fillBox(c, 16, 25, 3, 7 - lower, p.main);
+      fillBox(c, 12, 30 - lower, 6, 3, p.deep);
       hand(c, 10, 30 - lower, p);
     } else {
-      rect(c, 6, 25, 3, 7 - lower, p.main);
-      rect(c, 23, 25, 3, 7 - lower, p.deep);
+      fillBox(c, 6, 25, 3, 7 - lower, p.main);
+      fillBox(c, 23, 25, 3, 7 - lower, p.deep);
       hand(c, 8, 30 - lower, p);
       hand(c, 21, 30 - lower, p);
     }
@@ -793,43 +556,24 @@ function arms(c, p, pose, side, back) {
       return;
     }
     if (side) {
-      rect(c, 15, 25, 3, 7, p.main);
-      polygon(
-        c,
-        [
-          [15, 30],
-          [10, 27 - gesture],
-          [7, 28 - gesture],
-          [11, 33],
-          [17, 33],
-        ],
-        p.main,
-      );
+      fillBox(c, 15, 25, 3, 7, p.main);
+      fillPixelPolygon(c, [ [15, 30], [10, 27 - gesture], [7, 28 - gesture], [11, 33], [17, 33], ], p.main);
       hand(c, 6, 25 - gesture, p);
-      rect(c, 5, 24 - gesture, 1, 2, p.skin);
+      fillBox(c, 5, 24 - gesture, 1, 2, p.skin);
     } else if (back) {
       arm(c, 6, 25, p);
-      rect(c, 23, 25, 3, 7, p.deep);
-      rect(c, 25, 23 - gesture, 3, 8, p.main);
+      fillBox(c, 23, 25, 3, 7, p.deep);
+      fillBox(c, 25, 23 - gesture, 3, 8, p.main);
       hand(c, 25, 20 - gesture, p);
     } else {
       arm(c, 6, 25, p);
-      polygon(
+      fillPixelPolygon(
         c,
-        [
-          [23, 25],
-          [26, 26],
-          [28, 30],
-          [28, 24 - gesture * 2],
-          [31, 24 - gesture * 2],
-          [31, 33],
-          [27, 35],
-          [23, 31],
-        ],
+        [[23, 25], [26, 26], [28, 30], [28, 24 - gesture * 2], [31, 24 - gesture * 2], [31, 33], [27, 35], [23, 31]],
         p.main,
       );
       hand(c, 28, 20 - gesture * 2, p);
-      rect(c, 27, 20 - gesture * 2, 1, 3, p.skin);
+      fillBox(c, 27, 20 - gesture * 2, 1, 3, p.skin);
     }
     return;
   }
@@ -838,247 +582,161 @@ function arms(c, p, pose, side, back) {
     // From behind the reader, the book and inward-facing palms are hidden by
     // the torso. Only the outside sleeves and a quiet shoulder shift are seen.
     if (back) {
-      rect(c, 6, 25 + page, 3, 8, p.main);
-      rect(c, 6, 26 + page, 1, 5, p.light);
-      rect(c, 23, 25 + page, 3, 8, p.deep);
-      rect(c, 7, 32 + page, 2, 2, p.skinShadow);
-      rect(c, 23, 32 + page, 2, 2, p.skinShadow);
+      fillBox(c, 6, 25 + page, 3, 8, p.main);
+      fillBox(c, 6, 26 + page, 1, 5, p.light);
+      fillBox(c, 23, 25 + page, 3, 8, p.deep);
+      fillBox(c, 7, 32 + page, 2, 2, p.skinShadow);
+      fillBox(c, 23, 32 + page, 2, 2, p.skinShadow);
     } else if (side) {
-      rect(c, 15, 26, 3, 7, p.main);
-      rect(c, 10, 31, 7, 3, p.main);
+      fillBox(c, 15, 26, 3, 7, p.main);
+      fillBox(c, 10, 31, 7, 3, p.main);
       hand(c, 8, 31, p);
-      rect(c, 5, 32, 8, 8, '#805e45');
-      polygon(
-        c,
-        [
-          [6, 32],
-          [9, 33],
-          [12, 32 - page],
-          [12, 38],
-          [9, 39],
-          [6, 38],
-        ],
-        '#e9d7ad',
-      );
-      rect(c, 9, 33, 1, 5, '#b59a6d');
-      rect(c, 6, 34 + page, 2, 1, '#b59a6d');
-      if (page) line(c, [10, 33], [11, 37], '#fff0cf');
+      fillBox(c, 5, 32, 8, 8, '#805e45');
+      fillPixelPolygon(c, [ [6, 32], [9, 33], [12, 32 - page], [12, 38], [9, 39], [6, 38], ], '#e9d7ad');
+      fillBox(c, 9, 33, 1, 5, '#b59a6d');
+      fillBox(c, 6, 34 + page, 2, 1, '#b59a6d');
+      if (page) pixelLine(c, [10, 33], [11, 37], '#fff0cf');
     } else {
-      rect(c, 6, 26, 3, 8, p.main);
-      rect(c, 23, 26, 3, 8, p.deep);
+      fillBox(c, 6, 26, 3, 8, p.main);
+      fillBox(c, 23, 26, 3, 8, p.deep);
       hand(c, 10, 32, p);
       hand(c, 19, 32, p);
-      polygon(
-        c,
-        [
-          [11, 32],
-          [16, 34],
-          [21, 32 - page],
-          [22, 39],
-          [16, 40],
-          [10, 38],
-        ],
-        '#e9d7ad',
-      );
-      line(c, [16, 34], [16, 39], '#a88c62');
-      rect(c, 12, 35, 2, 1, '#bfa375');
-      rect(c, 18, 35 + page, 2, 1, '#bfa375');
-      if (page) line(c, [17, 34], [20, 37], '#fff0cf');
+      fillPixelPolygon(c, [ [11, 32], [16, 34], [21, 32 - page], [22, 39], [16, 40], [10, 38], ], '#e9d7ad');
+      pixelLine(c, [16, 34], [16, 39], '#a88c62');
+      fillBox(c, 12, 35, 2, 1, '#bfa375');
+      fillBox(c, 18, 35 + page, 2, 1, '#bfa375');
+      if (page) pixelLine(c, [17, 34], [20, 37], '#fff0cf');
     }
     return;
   }
   if (pose.motion === 'work') {
     const lift = pose.smooth ? [0, 0, 2, 5, 6, 3, 0, 0][pose.phase] : [0, 2, 5, 2][pose.phase];
     if (back) {
-      rect(c, 7, 24, 3, 7, p.main);
+      fillBox(c, 7, 24, 3, 7, p.main);
       hand(c, 6, 22 - lift, p);
-      rect(c, 24, 24, 3, 7, p.deep);
+      fillBox(c, 24, 24, 3, 7, p.deep);
       hand(c, 24, 23, p);
-      rect(c, 7, 17 - lift, 2, 9, '#b58a54');
-      rect(c, 4, 16 - lift, 8, 3, '#65838b');
-      rect(c, 5, 16 - lift, 6, 1, '#b7cbd0');
+      fillBox(c, 7, 17 - lift, 2, 9, '#b58a54');
+      fillBox(c, 4, 16 - lift, 8, 3, '#65838b');
+      fillBox(c, 5, 16 - lift, 6, 1, '#b7cbd0');
     } else {
-      rect(c, 6, 26, 3, 7, p.main);
-      rect(c, 9, 31, 6, 3, p.main);
+      fillBox(c, 6, 26, 3, 7, p.main);
+      fillBox(c, 9, 31, 6, 3, p.main);
       hand(c, 13, 31, p);
-      rect(c, 15, 34, 7, 2, '#b78d62');
-      rect(c, 23, 25 - lift, 3, 8, p.deep);
+      fillBox(c, 15, 34, 7, 2, '#b78d62');
+      fillBox(c, 23, 25 - lift, 3, 8, p.deep);
       hand(c, 26, 24 - lift, p);
-      rect(c, 28, 18 - lift, 2, 14, '#b58a54');
-      rect(c, 25, 17 - lift, 7, 3, '#65838b');
-      rect(c, 26, 17 - lift, 5, 1, '#b7cbd0');
+      fillBox(c, 28, 18 - lift, 2, 14, '#b58a54');
+      fillBox(c, 25, 17 - lift, 7, 3, '#65838b');
+      fillBox(c, 26, 17 - lift, 5, 1, '#b7cbd0');
     }
     return;
   }
   if (pose.motion === 'camera') {
     const y = pose.smooth ? [28, 28, 25, 21, 16, 16, 18, 25][pose.phase] : pose.phase ? 16 : 26;
     if (back) {
-      rect(c, 6, 25, 3, 7, p.main);
-      rect(c, 23, 25, 3, 7, p.deep);
+      fillBox(c, 6, 25, 3, 7, p.main);
+      fillBox(c, 23, 25, 3, 7, p.deep);
       hand(c, 5, y + 2, p);
-      rect(c, 4, y, 9, 7, '#263d43');
-      rect(c, 5, y + 1, 7, 2, '#718b91');
-      rect(c, 8, y + 3, 3, 3, '#9bc0c3');
-      rect(c, 6, y - 1, 4, 1, '#263d43');
+      fillBox(c, 4, y, 9, 7, '#263d43');
+      fillBox(c, 5, y + 1, 7, 2, '#718b91');
+      fillBox(c, 8, y + 3, 3, 3, '#9bc0c3');
+      fillBox(c, 6, y - 1, 4, 1, '#263d43');
     } else {
-      polygon(
-        c,
-        [
-          [6, 26],
-          [9, 25],
-          [12, y + 4],
-          [11, y + 7],
-          [7, y + 6],
-        ],
-        p.main,
-      );
-      polygon(
-        c,
-        [
-          [24, 25],
-          [26, 26],
-          [25, y + 7],
-          [21, y + 7],
-          [20, y + 4],
-        ],
-        p.deep,
-      );
+      fillPixelPolygon(c, [ [6, 26], [9, 25], [12, y + 4], [11, y + 7], [7, y + 6], ], p.main);
+      fillPixelPolygon(c, [ [24, 25], [26, 26], [25, y + 7], [21, y + 7], [20, y + 4], ], p.deep);
       hand(c, 10, y + 2, p);
       hand(c, 20, y + 2, p);
-      rect(c, 11, y, 11, 7, '#263d43');
-      rect(c, 13, y - 1, 4, 1, '#263d43');
-      rect(c, 12, y + 1, 9, 2, '#607f8a');
-      rect(c, 16, y + 2, 5, 4, '#a5c3c0');
-      rect(c, 17, y + 3, 3, 3, '#274b5f');
-      rect(c, 18, y + 3, 1, 1, '#e3eee0');
-      rect(c, 12, y + 3, 2, 2, '#c8a277');
+      fillBox(c, 11, y, 11, 7, '#263d43');
+      fillBox(c, 13, y - 1, 4, 1, '#263d43');
+      fillBox(c, 12, y + 1, 9, 2, '#607f8a');
+      fillBox(c, 16, y + 2, 5, 4, '#a5c3c0');
+      fillBox(c, 17, y + 3, 3, 3, '#274b5f');
+      fillBox(c, 18, y + 3, 1, 1, '#e3eee0');
+      fillBox(c, 12, y + 3, 2, 2, '#c8a277');
     }
   }
 }
+/** Face, ears and accessories worn on the head. */
 function head(c, p, pose, side, back) {
   const blink = pose.smooth
     ? (pose.motion === 'rest' || pose.motion === 'idle') && pose.phase === 3
     : pose.motion === 'rest' && pose.phase === 1;
-  rect(c, 13, 21, 7, 4, p.skinShadow);
-  rect(c, 14, 21, 5, 3, p.skin);
-  polygon(
+  fillBox(c, 13, 21, 7, 4, p.skinShadow);
+  fillBox(c, 14, 21, 5, 3, p.skin);
+  fillPixelPolygon(
     c,
     side
-      ? [
-          [11, 6],
-          [21, 6],
-          [24, 10],
-          [24, 18],
-          [21, 22],
-          [13, 22],
-          [9, 19],
-          [9, 17],
-          [7, 16],
-          [8, 14],
-          [9, 14],
-          [9, 10],
-        ]
-      : [
-          [10, 6],
-          [22, 6],
-          [25, 10],
-          [25, 18],
-          [22, 22],
-          [11, 22],
-          [7, 18],
-          [7, 11],
-        ],
+      ? [[11, 6], [21, 6], [24, 10], [24, 18], [21, 22], [13, 22], [9, 19], [9, 17], [7, 16], [8, 14], [9, 14], [9, 10]]
+      : [[10, 6], [22, 6], [25, 10], [25, 18], [22, 22], [11, 22], [7, 18], [7, 11]],
     p.skinShadow,
   );
-  rect(c, side ? 10 : 9, 10, side ? 12 : 14, 9, p.skin);
-  rect(c, side ? 10 : 9, 11, 3, 7, p.skinLight);
-  rect(c, 12, 19, 9, 2, p.skin);
+  fillBox(c, side ? 10 : 9, 10, side ? 12 : 14, 9, p.skin);
+  fillBox(c, side ? 10 : 9, 11, 3, 7, p.skinLight);
+  fillBox(c, 12, 19, 9, 2, p.skin);
   if (back) {
-    polygon(
-      c,
-      [
-        [9, 7],
-        [22, 7],
-        [25, 11],
-        [25, 18],
-        [22, 22],
-        [11, 22],
-        [7, 18],
-        [7, 11],
-      ],
-      p.hair,
-    );
-    rect(c, 9, 11, 2, 7, p.hairLight);
-    rect(c, 13, 19, 9, 2, p.hairDark);
-    rect(c, 23, 12, 2, 7, p.hairDark);
+    fillPixelPolygon(c, [[9, 7], [22, 7], [25, 11], [25, 18], [22, 22], [11, 22], [7, 18], [7, 11]], p.hair);
+    fillBox(c, 9, 11, 2, 7, p.hairLight);
+    fillBox(c, 13, 19, 9, 2, p.hairDark);
+    fillBox(c, 23, 12, 2, 7, p.hairDark);
   } else {
     if (side) {
-      rect(c, 9, 13, 3, 1, p.hair);
-      rect(c, 9, blink ? 16 : 15, 2, blink ? 1 : 3, INK);
-      if (!blink) rect(c, 9, 15, 1, 1, '#f7edda');
-      rect(c, 8, 18, 3, 1, p.skinLight);
-      rect(c, 10, 20, 4, 1, '#ad7660');
-      rect(c, 21, 14, 3, 5, p.skin);
-      rect(c, 22, 15, 2, 2, p.skinShadow);
+      fillBox(c, 9, 13, 3, 1, p.hair);
+      fillBox(c, 9, blink ? 16 : 15, 2, blink ? 1 : 3, INK);
+      if (!blink) fillBox(c, 9, 15, 1, 1, '#f7edda');
+      fillBox(c, 8, 18, 3, 1, p.skinLight);
+      fillBox(c, 10, 20, 4, 1, '#ad7660');
+      fillBox(c, 21, 14, 3, 5, p.skin);
+      fillBox(c, 22, 15, 2, 2, p.skinShadow);
     } else {
       for (const x of [10, 19]) {
-        rect(c, x, 13, 3, 1, p.hair);
-        rect(c, x + 1, blink ? 16 : 15, 2, blink ? 1 : 3, INK);
-        if (!blink) rect(c, x + 1, 15, 1, 1, '#f7edda');
+        fillBox(c, x, 13, 3, 1, p.hair);
+        fillBox(c, x + 1, blink ? 16 : 15, 2, blink ? 1 : 3, INK);
+        if (!blink) fillBox(c, x + 1, 15, 1, 1, '#f7edda');
       }
-      rect(c, 15, 17, 2, 2, p.skinShadow);
-      rect(c, 13, 20, 6, 1, '#a76f5d');
-      rect(c, 10, 19, 3, 1, '#d89579');
-      rect(c, 21, 19, 2, 1, '#c98a70');
+      fillBox(c, 15, 17, 2, 2, p.skinShadow);
+      fillBox(c, 13, 20, 6, 1, '#a76f5d');
+      fillBox(c, 10, 19, 3, 1, '#d89579');
+      fillBox(c, 21, 19, 2, 1, '#c98a70');
     }
   }
   hairStyle(c, p, side, back);
   if (!back && ['glasses', 'roundglasses'].includes(p.accessory)) {
     const rim = p.accessory === 'roundglasses' ? '#a1835c' : '#405b65';
     const glass = x => {
-      rect(c, x, 14, 6, 5, rim);
-      rect(c, x + 1, 15, 4, 3, '#a9c9c5');
-      rect(c, x + 2, blink ? 16 : 15, 2, blink ? 1 : 3, INK);
-      rect(c, x + 1, 15, 1, 1, '#f2efda');
+      fillBox(c, x, 14, 6, 5, rim);
+      fillBox(c, x + 1, 15, 4, 3, '#a9c9c5');
+      fillBox(c, x + 2, blink ? 16 : 15, 2, blink ? 1 : 3, INK);
+      fillBox(c, x + 1, 15, 1, 1, '#f2efda');
     };
     if (side) {
       glass(7);
-      rect(c, 13, 15, 9, 1, rim);
+      fillBox(c, 13, 15, 9, 1, rim);
     } else {
       glass(8);
       glass(18);
-      rect(c, 14, 15, 4, 1, rim);
+      fillBox(c, 14, 15, 4, 1, rim);
     }
   }
   if (p.accessory === 'scarf') {
-    polygon(
-      c,
-      [
-        [11, 22],
-        [16, 24],
-        [22, 22],
-        [23, 25],
-        [18, 27],
-        [11, 25],
-      ],
-      '#c8a269',
-    );
-    rect(c, 19, 26, 4, 6, '#d7b980');
-    rect(c, 20, 26, 1, 5, '#edd4a3');
-    rect(c, 19, 32, 1, 2, '#9b7750');
-    rect(c, 22, 32, 1, 2, '#9b7750');
+    fillPixelPolygon(c, [ [11, 22], [16, 24], [22, 22], [23, 25], [18, 27], [11, 25], ], '#c8a269');
+    fillBox(c, 19, 26, 4, 6, '#d7b980');
+    fillBox(c, 20, 26, 1, 5, '#edd4a3');
+    fillBox(c, 19, 32, 1, 2, '#9b7750');
+    fillBox(c, 22, 32, 1, 2, '#9b7750');
   }
   const speaking = pose.smooth
     ? [false, false, true, true, false, true, false, false][pose.phase]
     : pose.phase;
   if (!back && pose.motion === 'talk' && speaking) {
-    rect(c, side ? 10 : 14, 20, side ? 3 : 5, 2, '#8e5549');
-    rect(c, side ? 10 : 14, 20, side ? 2 : 4, 1, '#f2d7ba');
+    fillBox(c, side ? 10 : 14, 20, side ? 3 : 5, 2, '#8e5549');
+    fillBox(c, side ? 10 : 14, 20, side ? 2 : 4, 1, '#f2d7ba');
   }
 }
+/** Front hair by style. */
 function hairStyle(c, p, side, back) {
   // A common outer contour keeps every direction at the same physical scale.
-  polygon(
+  fillPixelPolygon(
     c,
     [
       [8, 14],
@@ -1097,88 +755,48 @@ function hairStyle(c, p, side, back) {
     ],
     p.hairDark,
   );
-  polygon(
+  fillPixelPolygon(
     c,
-    [
-      [8, 9],
-      [10, 5],
-      [15, 3],
-      [21, 5],
-      [24, 8],
-      [23, 11],
-      [20, 8],
-      [16, 9],
-      [12, 8],
-      [10, 12],
-    ],
+    [[8, 9], [10, 5], [15, 3], [21, 5], [24, 8], [23, 11], [20, 8], [16, 9], [12, 8], [10, 12]],
     p.hair,
   );
-  rect(c, 11, 6, 4, 1, p.hairLight);
-  rect(c, 15, 5, 5, 1, p.hairLight);
+  fillBox(c, 11, 6, 4, 1, p.hairLight);
+  fillBox(c, 15, 5, 5, 1, p.hairLight);
   if (back) {
-    rect(c, 8, 10, 17, 7, p.hair);
-    rect(c, 10, 11, 2, 7, p.hairLight);
-    rect(c, 21, 11, 2, 8, p.hairDark);
-    rect(c, 13, 20, 8, 2, p.hairDark);
+    fillBox(c, 8, 10, 17, 7, p.hair);
+    fillBox(c, 10, 11, 2, 7, p.hairLight);
+    fillBox(c, 21, 11, 2, 8, p.hairDark);
+    fillBox(c, 13, 20, 8, 2, p.hairDark);
   }
   switch (p.hairStyle) {
     case 'short':
-      polygon(
+      fillPixelPolygon(
         c,
-        [
-          [7, 9],
-          [9, 4],
-          [12, 2],
-          [15, 4],
-          [19, 2],
-          [24, 6],
-          [23, 9],
-          [19, 7],
-          [16, 9],
-          [12, 7],
-        ],
+        [[7, 9], [9, 4], [12, 2], [15, 4], [19, 2], [24, 6], [23, 9], [19, 7], [16, 9], [12, 7]],
         p.hair,
       );
-      rect(c, 11, 5, 4, 1, p.hairLight);
+      fillBox(c, 11, 5, 4, 1, p.hairLight);
       if (!back) {
         const x = side ? 20 : 23;
-        rect(c, x, 7, 1, 5, '#92ab62');
-        rect(c, x + 1, 6, 3, 2, '#b0bf74');
-        rect(c, x + 2, 5, 2, 1, '#b0bf74');
+        fillBox(c, x, 7, 1, 5, '#92ab62');
+        fillBox(c, x + 1, 6, 3, 2, '#b0bf74');
+        fillBox(c, x + 2, 5, 2, 1, '#b0bf74');
       }
       break;
     case 'wavy':
-      for (const [x, y] of [
-        [6, 8],
-        [8, 4],
-        [12, 2],
-        [17, 2],
-        [22, 5],
-        [24, 9],
-      ]) {
-        rect(c, x, y, 4, 4, p.hair);
-        rect(c, x + 1, y, 2, 1, p.hairLight);
+      for (const [x, y] of [[6, 8], [8, 4], [12, 2], [17, 2], [22, 5], [24, 9]]) {
+        fillBox(c, x, y, 4, 4, p.hair);
+        fillBox(c, x + 1, y, 2, 1, p.hairLight);
       }
-      if (side) rect(c, 21, 19, 3, 2, p.hair);
+      if (side) fillBox(c, 21, 19, 3, 2, p.hair);
       break;
     case 'parted':
-      polygon(
-        c,
-        [
-          [7, 12],
-          [7, 7],
-          [12, 3],
-          [18, 3],
-          [14, 7],
-          [10, 12],
-        ],
-        p.hair,
-      );
-      rect(c, 16, 4, 1, 4, p.hairDark);
-      line(c, [9, 8], [13, 5], p.hairLight);
+      fillPixelPolygon(c, [ [7, 12], [7, 7], [12, 3], [18, 3], [14, 7], [10, 12], ], p.hair);
+      fillBox(c, 16, 4, 1, 4, p.hairDark);
+      pixelLine(c, [9, 8], [13, 5], p.hairLight);
       break;
     case 'bun':
-      polygon(
+      fillPixelPolygon(
         c,
         [
           [side ? 20 : 12, 6],
@@ -1190,123 +808,45 @@ function hairStyle(c, p, side, back) {
         ],
         p.hair,
       );
-      rect(c, side ? 20 : 12, 2, 4, 1, p.hairLight);
-      rect(c, side ? 19 : 11, 6, 8, 1, p.accent);
+      fillBox(c, side ? 20 : 12, 2, 4, 1, p.hairLight);
+      fillBox(c, side ? 19 : 11, 6, 8, 1, p.accent);
       if (!back) {
-        rect(c, side ? 22 : 24, 13, 2, 2, '#edc4aa');
-        rect(c, side ? 23 : 25, 12, 2, 1, '#bb7f8b');
+        fillBox(c, side ? 22 : 24, 13, 2, 2, '#edc4aa');
+        fillBox(c, side ? 23 : 25, 12, 2, 1, '#bb7f8b');
       }
       break;
     case 'bob':
-      polygon(
-        c,
-        [
-          [7, 8],
-          [10, 6],
-          [9, 15],
-          [10, 21],
-          [8, 24],
-          [5, 21],
-          [5, 12],
-        ],
-        p.hair,
-      );
-      polygon(
-        c,
-        [
-          [23, 7],
-          [26, 11],
-          [27, 20],
-          [24, 24],
-          [21, 22],
-          [23, 16],
-        ],
-        p.hair,
-      );
-      rect(c, 7, 13, 1, 7, p.hairLight);
-      rect(c, 24, 13, 1, 7, p.hairLight);
+      fillPixelPolygon(c, [ [7, 8], [10, 6], [9, 15], [10, 21], [8, 24], [5, 21], [5, 12], ], p.hair);
+      fillPixelPolygon(c, [ [23, 7], [26, 11], [27, 20], [24, 24], [21, 22], [23, 16], ], p.hair);
+      fillBox(c, 7, 13, 1, 7, p.hairLight);
+      fillBox(c, 24, 13, 1, 7, p.hairLight);
       break;
     case 'cap':
-      polygon(
-        c,
-        [
-          [6, 11],
-          [8, 5],
-          [13, 2],
-          [21, 3],
-          [25, 7],
-          [25, 12],
-        ],
-        '#92936c',
-      );
-      rect(c, 10, 5, 9, 1, '#b9b78b');
-      line(c, [18, 3], [19, 10], '#737c59');
-      polygon(
+      fillPixelPolygon(c, [ [6, 11], [8, 5], [13, 2], [21, 3], [25, 7], [25, 12], ], '#92936c');
+      fillBox(c, 10, 5, 9, 1, '#b9b78b');
+      pixelLine(c, [18, 3], [19, 10], '#737c59');
+      fillPixelPolygon(
         c,
         side
-          ? [
-              [4, 11],
-              [24, 10],
-              [25, 13],
-              [5, 14],
-              [2, 13],
-            ]
-          : [
-              [6, 11],
-              [25, 11],
-              [27, 13],
-              [24, 15],
-              [9, 14],
-              [5, 13],
-            ],
+          ? [[4, 11], [24, 10], [25, 13], [5, 14], [2, 13]]
+          : [[6, 11], [25, 11], [27, 13], [24, 15], [9, 14], [5, 13]],
         '#72845f',
       );
-      rect(c, 8, 12, 10, 1, '#b8b98c');
+      fillBox(c, 8, 12, 10, 1, '#b8b98c');
       break;
     case 'ponytail':
-      polygon(
-        c,
-        [
-          [7, 12],
-          [8, 6],
-          [13, 3],
-          [21, 4],
-          [24, 8],
-          [21, 10],
-          [17, 8],
-          [14, 11],
-          [10, 10],
-        ],
-        p.hair,
-      );
-      rect(c, 11, 6, 8, 1, p.hairLight);
-      rect(c, side ? 24 : 25, 14, 2, 2, p.accent);
+      fillPixelPolygon(c, [[7, 12], [8, 6], [13, 3], [21, 4], [24, 8], [21, 10], [17, 8], [14, 11], [10, 10]], p.hair);
+      fillBox(c, 11, 6, 8, 1, p.hairLight);
+      fillBox(c, side ? 24 : 25, 14, 2, 2, p.accent);
       break;
     case 'curls':
-      for (const [x, y] of [
-        [5, 10],
-        [7, 5],
-        [11, 2],
-        [16, 2],
-        [21, 4],
-        [24, 8],
-        [25, 13],
-        [6, 15],
-        [24, 18],
-      ]) {
-        polygon(
+      for (const [x, y] of [[5, 10], [7, 5], [11, 2], [16, 2], [21, 4], [24, 8], [25, 13], [6, 15], [24, 18]]) {
+        fillPixelPolygon(
           c,
-          [
-            [x + 1, y],
-            [x + 4, y],
-            [x + 5, y + 2],
-            [x + 4, y + 4],
-            [x + 1, y + 4],
-            [x, y + 2],
-          ],
+          [[x + 1, y], [x + 4, y], [x + 5, y + 2], [x + 4, y + 4], [x + 1, y + 4], [x, y + 2]],
           p.hair,
         );
-        rect(c, x + 1, y + 1, 2, 1, p.hairLight);
+        fillBox(c, x + 1, y + 1, 2, 1, p.hairLight);
       }
       break;
   }
@@ -1315,12 +855,16 @@ function hairStyle(c, p, side, back) {
 // default-state surface as a new canvas without allocating 192 canvases per resident.
 let tile = null;
 function scratchTile() {
-  if (!tile) return (tile = canvas(32, 48));
+  if (!tile) return (tile = createCanvas(32, 48));
   const context = tile.getContext('2d');
   if (context.reset) context.reset();
   else tile.width = 32;
   return tile;
 }
+/**
+ * Draw one atlas frame into `c` at its origin: the 32×48 figure is drawn on a
+ * scratch tile (mirrored for right-facing frames) and copied at 2× scale.
+ */
 function drawResident(c, agent, frame) {
   const p = palette(agent),
     pose = poseFor(frame),
@@ -1361,7 +905,7 @@ export function registerResidentAssets(scene, agents) {
     const key = identity(agent);
     if (!scene.textures.exists(key)) {
       const columns = 16,
-        sheet = canvas(columns * 64, Math.ceil(RESIDENT_FRAME_COUNT / columns) * 96),
+        sheet = createCanvas(columns * 64, Math.ceil(RESIDENT_FRAME_COUNT / columns) * 96),
         c = sheet.getContext('2d');
       for (let frame = 0; frame < RESIDENT_FRAME_COUNT; frame++) {
         c.save();
@@ -1386,7 +930,7 @@ export function registerResidentAssets(scene, agents) {
 export function residentPortrait(agent) {
   const key = identity(agent);
   if (!portraitCache.has(key)) {
-    const portrait = canvas(64, 96);
+    const portrait = createCanvas(64, 96);
     drawResident(portrait.getContext('2d'), agent, 0);
     portraitCache.set(key, portrait.toDataURL('image/png'));
   }
@@ -1394,7 +938,7 @@ export function residentPortrait(agent) {
 }
 /** Read-only artwork preview for local visual QA, independent of simulation state. */
 export function residentPreview(agent, frame = 0) {
-  const preview = canvas(64, 96),
+  const preview = createCanvas(64, 96),
     index = Number.isFinite(frame) ? Math.max(0, Math.min(RESIDENT_FRAME_COUNT - 1, Math.trunc(frame))) : 0;
   drawResident(preview.getContext('2d'), agent, index);
   return preview.toDataURL('image/png');

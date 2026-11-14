@@ -1,0 +1,7 @@
+# Hand-laid pixel art: one shape per line, which Prettier would explode.
+src/town-assets.js
+src/environment-detail.js
+src/resident-art.js
+node_modules/
+output/
+package-lock.json
