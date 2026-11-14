@@ -29,7 +29,17 @@ const EQUIPMENT_DISTRICTS = ['workshop', 'studio'];
 const SPEECH_KINDS = new Set(['talk', 'reply', 'invite', 'accept', 'decline']);
 const FAILURE_KINDS = new Set(['invalid', 'capacity_failure', 'join_failed']);
 /** Event kinds that show what a resident is doing in their district. */
-const ACTIVITY_KINDS = new Set([...SPEECH_KINDS, 'rest', 'wait', 'work', 'join', 'borrow', 'return', 'walk', 'move']);
+const ACTIVITY_KINDS = new Set([
+  ...SPEECH_KINDS,
+  'rest',
+  'wait',
+  'work',
+  'join',
+  'borrow',
+  'return',
+  'walk',
+  'move',
+]);
 const SEARCH_RADIUS = 8;
 const workLabel = zone => (zone === 'studio' ? '整理構圖與攝影' : '在工作桌製作');
 const pointKey = point => point.join(',');
@@ -135,7 +145,13 @@ function anchorForLatestActivity(agent, index, history, tick, { working, locked 
       working.add(agent.id);
       locked.add(agent.id);
     }
-    return { point: seat.point.slice(), objectId: seat.object.id, label: workLabel(agent.zone), facing: 'up', seated: false };
+    return {
+      point: seat.point.slice(),
+      objectId: seat.object.id,
+      label: workLabel(agent.zone),
+      facing: 'up',
+      seated: false,
+    };
   }
   if ((kind === 'borrow' || kind === 'return') && WORK_SEATS[agent.zone]) {
     const studio = agent.zone === 'studio';
@@ -151,7 +167,12 @@ function anchorForLatestActivity(agent, index, history, tick, { working, locked 
     const spot = IDLE_SPOTS[agent.zone][(index + latest.tick) % 8];
     return { point: tileCenter(...spot), label: '在附近散步', facing: 'down', seated: false };
   }
-  return { point: tileCenter(...IDLE_SPOTS[agent.zone][slot]), label: '在附近觀察', facing: 'down', seated: false };
+  return {
+    point: tileCenter(...IDLE_SPOTS[agent.zone][slot]),
+    label: '在附近觀察',
+    facing: 'down',
+    seated: false,
+  };
 }
 
 /**
@@ -170,7 +191,13 @@ function seatWorkers(agents, anchors, working, succeededNow) {
       const { point, object } = seats[seatIndex];
       usedSeats.add(seatIndex);
       seated.add(id);
-      anchors.set(id, { point: point.slice(), objectId: object.id, label: workLabel(zone), facing: 'up', seated: false });
+      anchors.set(id, {
+        point: point.slice(),
+        objectId: object.id,
+        label: workLabel(zone),
+        facing: 'up',
+        seated: false,
+      });
     };
     const tableIsFree = table => !usedSeats.has(table * 2) && !usedSeats.has(table * 2 + 1);
 
@@ -218,7 +245,9 @@ function gatherConversations(agents, anchors, locked, succeededNow) {
       // Several free-standing groups in one district are spread three tiles apart.
       const offset = fixed.length ? 0 : groupIndex * 3;
       const taken = new Set(
-        [...anchors].filter(([id]) => !group.has(id) || locked.has(id)).map(([, anchor]) => pointKey(anchor.point)),
+        [...anchors]
+          .filter(([id]) => !group.has(id) || locked.has(id))
+          .map(([, anchor]) => pointKey(anchor.point)),
       );
       const spots = [];
       for (let radius = 0; radius < SEARCH_RADIUS; radius++)
@@ -276,7 +305,11 @@ function separateOverlaps(agents, anchors, { working, locked, failedNow }) {
       for (let radius = 1; radius < SEARCH_RADIUS && !free; radius++)
         for (const [dx, dy] of NEARBY_DIRECTIONS(radius)) {
           const candidate = tileCenter(cx + dx, cy + dy);
-          if (isWalkable(...candidate) && locationAt(...candidate).zone === agent.zone && !occupied.has(pointKey(candidate))) {
+          if (
+            isWalkable(...candidate) &&
+            locationAt(...candidate).zone === agent.zone &&
+            !occupied.has(pointKey(candidate))
+          ) {
             free = candidate;
             break;
           }

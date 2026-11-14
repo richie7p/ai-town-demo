@@ -10,7 +10,8 @@
   "scripts": {
     "start": "node server.mjs",
     "test": "node --test",
-    "simulate": "node scripts/simulate.mjs"
+    "simulate": "node scripts/simulate.mjs",
+    "format": "npx --yes prettier@3.3.3 --write \"**/*.{js,mjs,css,html}\""
   },
   "dependencies": {
     "phaser": "4.2.1"

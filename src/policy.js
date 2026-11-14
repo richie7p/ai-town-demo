@@ -15,19 +15,47 @@ const LINES = {
   due: ['約好的時間到了，我來試試。', '我準備好了，看看能不能一起完成。', '照剛才的約定，現在開始吧。'],
   accept: ['好，我把這段時間留下來。', '可以，我也想試試看。', '好呀，下一個時段我會留在這裡。'],
   decline: ['謝謝邀請，這次我想自己做。', '我先整理自己的計畫，下次再說。', '今天想安靜一點，先不加入。'],
-  replyEquipment: ['嗯，先看看現場還有沒有空的設備。', '借到以後只能用兩個時段，我想先準備好。', '如果沒有空位，我就先做別的事。'],
-  replyCalm: ['好，慢慢來。我也不急著把行程排滿。', '那就在這裡待一會兒，聽聽大家在聊什麼。', '我也是，偶爾留一點空白時間很舒服。'],
+  replyEquipment: [
+    '嗯，先看看現場還有沒有空的設備。',
+    '借到以後只能用兩個時段，我想先準備好。',
+    '如果沒有空位，我就先做別的事。',
+  ],
+  replyCalm: [
+    '好，慢慢來。我也不急著把行程排滿。',
+    '那就在這裡待一會兒，聽聽大家在聊什麼。',
+    '我也是，偶爾留一點空白時間很舒服。',
+  ],
   cameraWork: ['換個角度試試構圖。', '想把眼前這個畫面記下來。', '再調整一下位置，這次慢慢拍。'],
   toolsWork: ['先把零件的位置排好。', '照自己的想法，試一個小做法。', '再修一下細節，看看是否更穩。'],
   toPlaza: ['去廣場走走，也許會遇到其他人。', '先去公共廣場換個心情。'],
-  cameraInvite: ['兩個時段後一起拍照嗎？我來借設備。', '想一起試試構圖嗎？預留兩個時段準備。', '我有個拍照點子，兩個時段後要不要一起試？'],
-  toolsInvite: ['兩個時段後一起做個小東西嗎？我先借工具。', '這裡有個手作點子，兩個時段後一起試試？', '要不要一起研究做法？我們約兩個時段後。'],
+  cameraInvite: [
+    '兩個時段後一起拍照嗎？我來借設備。',
+    '想一起試試構圖嗎？預留兩個時段準備。',
+    '我有個拍照點子，兩個時段後要不要一起試？',
+  ],
+  toolsInvite: [
+    '兩個時段後一起做個小東西嗎？我先借工具。',
+    '這裡有個手作點子，兩個時段後一起試試？',
+    '要不要一起研究做法？我們約兩個時段後。',
+  ],
   walk: ['沿著小路走一圈。', '看看附近有沒有新的點子。', '先自己逛逛，不急著找人。'],
   smallTalk: {
-    home: ['這裡安靜一些，你今天想怎麼安排？', '忙完了嗎？我想留點時間休息。', '我正在整理今天的想法，你呢？'],
+    home: [
+      '這裡安靜一些，你今天想怎麼安排？',
+      '忙完了嗎？我想留點時間休息。',
+      '我正在整理今天的想法，你呢？',
+    ],
     workshop: [null, '工具要輪流用，我想先把步驟想好。', '你比較喜歡先畫草圖，還是直接動手？'],
-    plaza: ['剛好在這裡遇到你，今天過得怎麼樣？', '我想在廣場待一會兒，你要去哪裡？', '換個地方走走，思路好像也變了。'],
-    studio: ['今天想換個角度拍照，你有想法嗎？', '我想先看看構圖，再決定要不要借設備。', '你喜歡拍細節，還是把整個場景留下來？'],
+    plaza: [
+      '剛好在這裡遇到你，今天過得怎麼樣？',
+      '我想在廣場待一會兒，你要去哪裡？',
+      '換個地方走走，思路好像也變了。',
+    ],
+    studio: [
+      '今天想換個角度拍照，你有想法嗎？',
+      '我想先看看構圖，再決定要不要借設備。',
+      '你喜歡拍細節，還是把整個場景留下來？',
+    ],
   },
 };
 
@@ -99,7 +127,11 @@ function keepAppointment(me) {
 function answerInvitation(me) {
   const { observation, agent, tick } = me;
   const incoming = observation.invitations.find(
-    i => i.to === agent.id && i.status === 'pending' && i.due > tick && observation.peers.some(p => p.id === i.from),
+    i =>
+      i.to === agent.id &&
+      i.status === 'pending' &&
+      i.due > tick &&
+      observation.peers.some(p => p.id === i.from),
   );
   if (!incoming) return null;
   const accept = me.chance('accept') > (me.quiet ? 0.28 : 0.18);
@@ -130,12 +162,21 @@ function replyToMessage(me) {
   const source = observation.provided.find(memory => memory.id === message.id);
   const heard = source?.text || '';
   const lines = /打算|計畫|想做/.test(heard)
-    ? [`我今天想留些時間給${topic}，再到廣場走走。`, `我還在想${topic}可以怎麼安排，你呢？`, '先把眼前的事做完，再看看哪裡有空位。']
+    ? [
+        `我今天想留些時間給${topic}，再到廣場走走。`,
+        `我還在想${topic}可以怎麼安排，你呢？`,
+        '先把眼前的事做完，再看看哪裡有空位。',
+      ]
     : /設備|工具|借/.test(heard)
       ? LINES.replyEquipment
       : /休息|安靜|慢慢/.test(heard)
         ? LINES.replyCalm
-        : [`我想從${topic}試個小點子，你覺得呢？`, '嗯，我想先聽完你的想法。', '我可能會用另一種方式，等一下再試試。', '有意思，我先記住這個說法。'];
+        : [
+            `我想從${topic}試個小點子，你覺得呢？`,
+            '嗯，我想先聽完你的想法。',
+            '我可能會用另一種方式，等一下再試試。',
+            '有意思，我先記住這個說法。',
+          ];
   return me.propose(
     'reply',
     {
@@ -151,7 +192,9 @@ function replyToMessage(me) {
 function useHeldEquipment(me) {
   if (!me.held) return null;
   const text =
-    me.held.type === 'camera' ? me.say('camera-work', LINES.cameraWork) : me.say('tools-work', LINES.toolsWork);
+    me.held.type === 'camera'
+      ? me.say('camera-work', LINES.cameraWork)
+      : me.say('tools-work', LINES.toolsWork);
   return me.propose('work', { text });
 }
 
@@ -165,7 +208,8 @@ function followDailyRoutine(me) {
   const morning = randomAt(seed, day, agent.id, 'morning-place') < 0.45 ? 'home' : 'plaza';
   const breakSlot = randomAt(seed, agent.id, 'break-slot') < 0.5 ? 8 : 9;
   const destination = slot <= 2 ? morning : slot >= 11 ? 'home' : slot >= breakSlot ? 'plaza' : agent.goal;
-  if (me.observation.invitations.length || agent.zone === destination || me.chance('routine') >= 0.62) return null;
+  if (me.observation.invitations.length || agent.zone === destination || me.chance('routine') >= 0.62)
+    return null;
   const text =
     destination === 'home'
       ? '先回住宅區，把今天的步調放慢。'
@@ -213,9 +257,20 @@ function socialiseOrUseEquipment(me) {
     memories.filter(m => observation.peers.some(p => m.tags.includes(p.id))),
     'recall',
   );
-  const familiarPeer = recalled && me.choose(observation.peers.filter(p => recalled.tags.includes(p.id)), 'recalled-peer');
-  const peer = familiarPeer && me.chance('revisit') < 0.42 ? familiarPeer : me.choose(observation.peers, 'peer');
-  const sharedMemory = peer && me.choose(memories.filter(m => m.tags.includes(peer.id) && m.day < day), 'past-contact');
+  const familiarPeer =
+    recalled &&
+    me.choose(
+      observation.peers.filter(p => recalled.tags.includes(p.id)),
+      'recalled-peer',
+    );
+  const peer =
+    familiarPeer && me.chance('revisit') < 0.42 ? familiarPeer : me.choose(observation.peers, 'peer');
+  const sharedMemory =
+    peer &&
+    me.choose(
+      memories.filter(m => m.tags.includes(peer.id) && m.day < day),
+      'past-contact',
+    );
 
   if (resourceType && peer && me.chance('invite') < 0.24 && !observation.invitations.length) {
     const lines = resourceType === 'camera' ? LINES.cameraInvite : LINES.toolsInvite;

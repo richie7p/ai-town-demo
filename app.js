@@ -37,7 +37,17 @@ const TOAST_MS = 5800;
 /** Residents animate for 45% of the playback interval, leaving a pause between steps. */
 const ANIMATION_SHARE = 0.45;
 const SCENE_CONTROLS = ['zoom-in', 'camera-reset', 'camera-follow', 'town-minimap', 'explore-toggle'];
-const RUN_CONTROLS = ['reset', 'step', 'play', 'finish', 'compare', 'import', 'export', 'settings-open', 'latest'];
+const RUN_CONTROLS = [
+  'reset',
+  'step',
+  'play',
+  'finish',
+  'compare',
+  'import',
+  'export',
+  'settings-open',
+  'latest',
+];
 
 // ---------------------------------------------------------------------------
 // State
@@ -145,7 +155,10 @@ function render({ animate = false } = {}) {
   const slot = slotOf(current.tick);
   setText('day-label', `第 ${String(dayOf(current.tick)).padStart(2, '0')} 天`);
   setText('phase-label', current.tick ? phaseOfSlot(slot) : '清晨，準備出門');
-  setText('condition-label', `${conditionName(current.config.capacity)} · 每類 ${current.config.capacity} 件設備`);
+  setText(
+    'condition-label',
+    `${conditionName(current.config.capacity)} · 每類 ${current.config.capacity} 件設備`,
+  );
   setText('timeline-label', `第 ${dayOf(current.tick)} 天 · ${current.tick ? slot : 0} / ${TICKS_PER_DAY}`);
   setText('timeline-total', `${current.tick} / ${TOTAL_TICKS}`);
   $('seek').max = world.tick;
@@ -187,8 +200,14 @@ function renderResidentList(current) {
     button.classList.toggle('selected', selected);
     button.setAttribute('aria-pressed', String(selected));
     const zone = ZONES[agent.zone].name;
-    button.setAttribute('aria-label', `${agent.name}，${zone}，${proposal ? ACTION_NAMES[proposal.action] : '準備開始'}`);
-    setHTML(button, `<div class="mini-portrait">${portrait(agent)}</div><strong>${escapeHTML(agent.name)}</strong><small></small>`);
+    button.setAttribute(
+      'aria-label',
+      `${agent.name}，${zone}，${proposal ? ACTION_NAMES[proposal.action] : '準備開始'}`,
+    );
+    setHTML(
+      button,
+      `<div class="mini-portrait">${portrait(agent)}</div><strong>${escapeHTML(agent.name)}</strong><small></small>`,
+    );
     const label = proposal ? ACTION_NAMES[proposal.action] : zone;
     if (button.lastElementChild.textContent !== label) button.lastElementChild.textContent = label;
   }
@@ -230,7 +249,9 @@ function renderResearchSummary(m, tick) {
   setText('y-value', m.final ? percent(m.y) : '—');
   setText('y-detail', m.final ? `${m.qualifiedLinks} / 28 對 · 工程示範值` : '尚未完成十日，不顯示最終指標');
   setText('core-value', m.final ? m.persistentCores.length : '—');
-  const thresholds = m.final ? ` 連結門檻 2／3／4 日：${[2, 3, 4].map(n => percent(m.sensitivity[n])).join('／')}。` : '';
+  const thresholds = m.final
+    ? ` 連結門檻 2／3／4 日：${[2, 3, 4].map(n => percent(m.sensitivity[n])).join('／')}。`
+    : '';
   setText(
     'research-detail',
     `設備借用：${m.borrowAttempts} 次合法嘗試、${m.capacityFailures} 次容量失敗（${percent(m.capacityFailureRate)}）。` +
@@ -543,7 +564,9 @@ $('file').addEventListener('change', event => {
   if (file) importRun(file);
 });
 
-$('fullscreen').addEventListener('click', () => expandTown(!document.body.classList.contains('town-expanded')));
+$('fullscreen').addEventListener('click', () =>
+  expandTown(!document.body.classList.contains('town-expanded')),
+);
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape') expandTown(false);
 });

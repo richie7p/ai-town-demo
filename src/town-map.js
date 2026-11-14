@@ -130,7 +130,8 @@ function furnish(id, zone, kind, [x, y, w, h], name, description, options = {}) 
   if (object.approach) object.approach = tileCenter(...object.approach);
   if (object.approaches) object.approaches = object.approaches.map(point => tileCenter(...point));
   if (!object.passable)
-    for (let row = y; row < y + h; row++) for (let column = x; column < x + w; column++) blocked[row][column] = true;
+    for (let row = y; row < y + h; row++)
+      for (let column = x; column < x + w; column++) blocked[row][column] = true;
   objects.push(Object.freeze(object));
   return object;
 }
@@ -219,7 +220,9 @@ for (const [i, [x, y]] of LIVING_ROOM_CHAIRS.entries())
       tone: i % 2,
     }),
   );
-furnish('home-plant', 'home', 'plant', [25, 17, 1, 1], '窗邊植栽', '光線下的一角綠意。', { approach: [24, 17] });
+furnish('home-plant', 'home', 'plant', [25, 17, 1, 1], '窗邊植栽', '光線下的一角綠意。', {
+  approach: [24, 17],
+});
 
 // Workshop: tool wall (where tools are borrowed), cabinet, four work tables, stools.
 const TABLE_POSITIONS = {
@@ -236,12 +239,28 @@ const TABLE_POSITIONS = {
     [51, 40],
   ],
 };
-furnish('workshop-storage', 'workshop', 'toolwall', [38, 4, 8, 1], '工具收納牆', '依序收納工具，方便居民借用與歸還。', {
-  approach: [41, 5],
-});
-furnish('workshop-cabinet', 'workshop', 'cabinet', [53, 4, 6, 1], '材料櫃', '木料、零件與尚未完成的小作品。', {
-  approach: [56, 5],
-});
+furnish(
+  'workshop-storage',
+  'workshop',
+  'toolwall',
+  [38, 4, 8, 1],
+  '工具收納牆',
+  '依序收納工具，方便居民借用與歸還。',
+  {
+    approach: [41, 5],
+  },
+);
+furnish(
+  'workshop-cabinet',
+  'workshop',
+  'cabinet',
+  [53, 4, 6, 1],
+  '材料櫃',
+  '木料、零件與尚未完成的小作品。',
+  {
+    approach: [56, 5],
+  },
+);
 for (const [i, position] of TABLE_POSITIONS.workshop.entries())
   furnishWorkTable(
     'workshop',
@@ -256,9 +275,17 @@ furnish('workshop-plant', 'workshop', 'plant', [58, 12, 1, 1], '工坊盆栽', '
 });
 
 // Café commons: counter, book exchange and four round tables with two chairs each.
-furnish('plaza-counter', 'plaza', 'cafeCounter', [5, 30, 8, 2], '咖啡吧檯', '飄著咖啡香的公共客廳聚會角落。', {
-  approach: [9, 32],
-});
+furnish(
+  'plaza-counter',
+  'plaza',
+  'cafeCounter',
+  [5, 30, 8, 2],
+  '咖啡吧檯',
+  '飄著咖啡香的公共客廳聚會角落。',
+  {
+    approach: [9, 32],
+  },
+);
 furnish('plaza-shelf', 'plaza', 'bookshelf', [23, 30, 3, 1], '交換書架', '放著可翻閱的書與居民留下的裝飾。', {
   approach: [24, 31],
 });
@@ -269,23 +296,39 @@ const CAFE_TABLES = [
   [19, 40],
 ];
 for (const [i, [x, y]] of CAFE_TABLES.entries()) {
-  furnish(`plaza-table-${i}`, 'plaza', 'cafeTable', [x, y, 3, 2], '咖啡圓桌', '坐在桌邊休息，或與身旁的人交談。', {
-    approach: [x - 1, y + 1],
-    approaches: [
-      [x - 1, y + 1],
-      [x + 3, y + 1],
-    ],
-  });
+  furnish(
+    `plaza-table-${i}`,
+    'plaza',
+    'cafeTable',
+    [x, y, 3, 2],
+    '咖啡圓桌',
+    '坐在桌邊休息，或與身旁的人交談。',
+    {
+      approach: [x - 1, y + 1],
+      approaches: [
+        [x - 1, y + 1],
+        [x + 3, y + 1],
+      ],
+    },
+  );
   for (let side = 0; side < 2; side++) {
     const chairX = x + (side ? 3 : -1);
     REST_SEATS.plaza.push(
-      furnish(`plaza-chair-${i}-${side}`, 'plaza', 'chair', [chairX, y + 1, 1, 1], '咖啡座椅', '公共客廳的休息座位。', {
-        approach: [chairX, y + 1],
-        seat: true,
-        passable: true,
-        facing: side ? 'left' : 'right',
-        tone: i,
-      }),
+      furnish(
+        `plaza-chair-${i}-${side}`,
+        'plaza',
+        'chair',
+        [chairX, y + 1, 1, 1],
+        '咖啡座椅',
+        '公共客廳的休息座位。',
+        {
+          approach: [chairX, y + 1],
+          seat: true,
+          passable: true,
+          facing: side ? 'left' : 'right',
+          tone: i,
+        },
+      ),
     );
   }
 }
@@ -297,9 +340,17 @@ furnish('plaza-menu', 'plaza', 'sign', [18, 30, 1, 1], '小鎮留言板', '空�
 });
 
 // Studio: camera cabinet (where cameras are borrowed), backdrop, editing desks, stools.
-furnish('studio-storage', 'studio', 'cabinet', [38, 30, 8, 1], '攝影器材櫃', '相機與攝影配件整齊收納在這裡。', {
-  approach: [41, 31],
-});
+furnish(
+  'studio-storage',
+  'studio',
+  'cabinet',
+  [38, 30, 8, 1],
+  '攝影器材櫃',
+  '相機與攝影配件整齊收納在這裡。',
+  {
+    approach: [41, 31],
+  },
+);
 furnish('studio-backdrop', 'studio', 'backdrop', [52, 30, 7, 2], '攝影背景牆', '共同攝影活動的取景區。', {
   approach: [55, 33],
 });
@@ -342,7 +393,13 @@ export const mapObject = id => objectsById.get(id);
 // Walking.
 
 export function isWalkable(x, y) {
-  const inside = Number.isFinite(x) && Number.isFinite(y) && x >= 0 && y >= 0 && x < WORLD_SIZE.width && y < WORLD_SIZE.height;
+  const inside =
+    Number.isFinite(x) &&
+    Number.isFinite(y) &&
+    x >= 0 &&
+    y >= 0 &&
+    x < WORLD_SIZE.width &&
+    y < WORLD_SIZE.height;
   return inside && !blocked[tileOf(y)][tileOf(x)];
 }
 
@@ -422,9 +479,15 @@ export function findWalkPath(from, to) {
 /** The room containing a pixel point, or the garden walkway outside. */
 export function locationAt(x, y) {
   const inside = MAP_ROOMS.find(
-    r => x >= r.x * TILE_SIZE && x < (r.x + r.w) * TILE_SIZE && y >= r.y * TILE_SIZE && y < (r.y + r.h) * TILE_SIZE,
+    r =>
+      x >= r.x * TILE_SIZE &&
+      x < (r.x + r.w) * TILE_SIZE &&
+      y >= r.y * TILE_SIZE &&
+      y < (r.y + r.h) * TILE_SIZE,
   );
-  return inside ? { zone: inside.zone, name: inside.name, room: inside.name } : { zone: null, name: '花園步道' };
+  return inside
+    ? { zone: inside.zone, name: inside.name, room: inside.name }
+    : { zone: null, name: '花園步道' };
 }
 
 // ---------------------------------------------------------------------------

@@ -49,7 +49,8 @@ const PROPOSAL_FIELDS = [
 const equipmentName = type => (type === 'tools' ? '製作工具' : '攝影設備');
 
 export function createWorld({ seed = 20261103, capacity = 2 } = {}) {
-  if (!Number.isSafeInteger(seed) || seed < 0 || seed > MAX_SEED) throw new Error('種子須為 0–999999999 的整數');
+  if (!Number.isSafeInteger(seed) || seed < 0 || seed > MAX_SEED)
+    throw new Error('種子須為 0–999999999 的整數');
   if (!CAPACITIES.includes(capacity)) throw new Error('設備數須為 2、3 或 8');
   const personas = shuffled(PERSONAS, `${seed}:personas`);
   const locations = shuffled(STARTING_ZONES, `${seed}:locations`);
@@ -350,12 +351,17 @@ function settleTalks(settlement) {
       next.conversations.push(conversation);
     }
     for (const proposal of talks) {
-      const event = emit('talk', [proposal.actor, proposal.target], proposal.text || '想和你聊聊今天的計畫。', {
-        proposalId: proposal.id,
-        conversationId: conversation.id,
-        opening,
-        success: true,
-      });
+      const event = emit(
+        'talk',
+        [proposal.actor, proposal.target],
+        proposal.text || '想和你聊聊今天的計畫。',
+        {
+          proposalId: proposal.id,
+          conversationId: conversation.id,
+          opening,
+          success: true,
+        },
+      );
       next.messages.push({
         id: event.id,
         tick,
@@ -465,7 +471,10 @@ function settleBorrow({ state, next, tick, emit, fail, heldBy }, proposal, actor
       e.owner === null &&
       state.equipment.find(snapshot => snapshot.id === e.id).owner === null,
   );
-  emit('borrow_attempt', [id], '合法借用嘗試', { proposalId: proposal.id, resourceType: proposal.resourceType });
+  emit('borrow_attempt', [id], '合法借用嘗試', {
+    proposalId: proposal.id,
+    resourceType: proposal.resourceType,
+  });
   if (!free) {
     fail(proposal, '沒有可用設備', 'capacity_failure');
     return;
@@ -528,7 +537,8 @@ function settleIdle({ observations, emit, heldBy }, proposal, actor) {
  * Returns the ids of the invitations completed this tick.
  */
 function settleWork(settlement) {
-  const { state, tick, agents, byActor, failed, emit, fail, together, heldBy, recordInteraction } = settlement;
+  const { state, tick, agents, byActor, failed, emit, fail, together, heldBy, recordInteraction } =
+    settlement;
   const cooperations = new Set();
   for (const proposal of settlement.pending('work')) {
     const worker = proposal.actor;
@@ -536,7 +546,13 @@ function settleWork(settlement) {
     const invitation = state.invitations.find(i => i.id === proposal.invitationId);
     const invitationMismatch =
       proposal.invitationId && (!invitation || invitation.from !== worker || invitation.due !== tick);
-    if (!item || item.usableFrom > tick || item.until < tick || item.zone !== agents[worker].zone || invitationMismatch) {
+    if (
+      !item ||
+      item.usableFrom > tick ||
+      item.until < tick ||
+      item.zone !== agents[worker].zone ||
+      invitationMismatch
+    ) {
       fail(proposal, '無可用的持有設備，或工作邀請不符');
       continue;
     }

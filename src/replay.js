@@ -23,7 +23,8 @@ export function exportRun(state) {
     })),
     events: state.events,
     decisionTrace: state.trace,
-    notice: '工程示範資料。無 LLM 呼叫、無真實人類資料；不得作正式實驗結果。FNV checksum 僅用於意外變更檢查。',
+    notice:
+      '工程示範資料。無 LLM 呼叫、無真實人類資料；不得作正式實驗結果。FNV checksum 僅用於意外變更檢查。',
   };
 }
 
@@ -54,7 +55,8 @@ export function replayRun(data, onStep = null) {
     state = next;
     verified.push(state);
   }
-  if (JSON.stringify(data.events) !== JSON.stringify(state.events)) throw new Error('事件紀錄與重播結果不一致');
+  if (JSON.stringify(data.events) !== JSON.stringify(state.events))
+    throw new Error('事件紀錄與重播結果不一致');
   if (JSON.stringify(data.decisionTrace) !== JSON.stringify(state.trace))
     throw new Error('決策／記憶紀錄與重播結果不一致');
   for (const snapshot of verified) onStep?.(snapshot);

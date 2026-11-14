@@ -78,7 +78,8 @@ export function characterPresentation(frame, id) {
   // A joiner's equipment is the host's, found through the shared invitation.
   const workEquipment =
     work?.equipmentId ||
-    (work?.invitationId && events.find(e => e.type === 'work' && e.invitationId === work.invitationId)?.equipmentId);
+    (work?.invitationId &&
+      events.find(e => e.type === 'work' && e.invitationId === work.invitationId)?.equipmentId);
 
   let pose = 'idle';
   if (!failed) {

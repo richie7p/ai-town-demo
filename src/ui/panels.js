@@ -7,7 +7,8 @@ import { EVENT_LABELS, FAILURE_KINDS, LIFE_KINDS, conditionName, equipmentLabel 
 
 export const portrait = agent => `<img src="${residentPortrait(agent)}" alt="" draggable="false">`;
 const eventLabel = event => EVENT_LABELS[event.type] || esc(event.type);
-const emptyState = (icon, message) => `<div class="empty"><span class="empty-icon">${icon}</span>${message}</div>`;
+const emptyState = (icon, message) =>
+  `<div class="empty"><span class="empty-icon">${icon}</span>${message}</div>`;
 const intro = text => `<p class="memory-intro">${text}</p>`;
 
 /**
@@ -39,14 +40,17 @@ export function nowTabHTML({ frame, selected, resident, pastEvents }) {
     .slice(-3)
     .reverse();
 
-  const kicker = frame.tick ? `第 ${dayOf(frame.tick)} 天 · 時段 ${slotOf(frame.tick)} 的提議` : '新的一天，還有很多可能';
+  const kicker = frame.tick
+    ? `第 ${dayOf(frame.tick)} 天 · 時段 ${slotOf(frame.tick)} 的提議`
+    : '新的一天，還有很多可能';
   let action = '準備開始今天的生活';
   let thought = '點選「開始生活」，看看誰會先出門，又會遇見誰。';
   let outcome = '';
   if (proposal) {
     const target = proposal.target ? ' · ' + esc(resident(proposal.target)?.name ?? proposal.target) : '';
     action = ACTION_NAMES[proposal.action] + target;
-    const destination = proposal.destination && `前往${ZONES[proposal.destination]?.name ?? proposal.destination}`;
+    const destination =
+      proposal.destination && `前往${ZONES[proposal.destination]?.name ?? proposal.destination}`;
     thought = esc(proposal.text || destination || '依目前狀態安排自己的活動。');
     const result = failure?.reason || results.find(e => e.type !== 'borrow_attempt')?.text || '本步已結算';
     outcome = `<div class="outcome ${failure ? 'failed' : ''}"><span class="status-dot"></span><span>${esc(result)}</span></div>`;
@@ -135,7 +139,10 @@ function networkPositions(agents) {
       const angle = (i * Math.PI) / 4 - Math.PI / 2;
       return [
         agent.id,
-        { x: NETWORK_CENTER.x + NETWORK_RADIUS.x * Math.cos(angle), y: NETWORK_CENTER.y + NETWORK_RADIUS.y * Math.sin(angle) },
+        {
+          x: NETWORK_CENTER.x + NETWORK_RADIUS.x * Math.cos(angle),
+          y: NETWORK_CENTER.y + NETWORK_RADIUS.y * Math.sin(angle),
+        },
       ];
     }),
   );
@@ -168,7 +175,11 @@ export function networkSVG({ frame, selected, resident }) {
       );
     })
     .join('');
-  return '<circle cx="180" cy="130" r="91" fill="#eef0e5" stroke="#d9e1cb" stroke-dasharray="3 6"/>' + links + nodes;
+  return (
+    '<circle cx="180" cy="130" r="91" fill="#eef0e5" stroke="#d9e1cb" stroke-dasharray="3 6"/>' +
+    links +
+    nodes
+  );
 }
 
 /** One button per pair that interacted, most interaction days first. */

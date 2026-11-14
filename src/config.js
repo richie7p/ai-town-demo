@@ -20,14 +20,44 @@ export const ZONES = {
 
 /** The eight residents, before the seeded shuffle assigns ids and starting zones. */
 export const PERSONAS = [
-  { name: '小禾', interests: '模型製作、植物', style: '先規劃，願意解釋步驟', goal: 'workshop', color: '#367760' },
+  {
+    name: '小禾',
+    interests: '模型製作、植物',
+    style: '先規劃，願意解釋步驟',
+    goal: 'workshop',
+    color: '#367760',
+  },
   { name: '阿光', interests: '攝影、散步', style: '較即興，喜歡分享', goal: 'studio', color: '#c48940' },
-  { name: '木木', interests: '修理、閱讀', style: '較安靜，可以直接拒絕', goal: 'workshop', color: '#6c7ba7' },
-  { name: '小苒', interests: '手作、裝飾', style: '交換想法，也能獨立進行', goal: 'workshop', color: '#b27077' },
-  { name: '日青', interests: '攝影、日記', style: '先觀察，再決定是否加入', goal: 'studio', color: '#5d9b9e' },
+  {
+    name: '木木',
+    interests: '修理、閱讀',
+    style: '較安靜，可以直接拒絕',
+    goal: 'workshop',
+    color: '#6c7ba7',
+  },
+  {
+    name: '小苒',
+    interests: '手作、裝飾',
+    style: '交換想法，也能獨立進行',
+    goal: 'workshop',
+    color: '#b27077',
+  },
+  {
+    name: '日青',
+    interests: '攝影、日記',
+    style: '先觀察，再決定是否加入',
+    goal: 'studio',
+    color: '#5d9b9e',
+  },
   { name: '阿岚', interests: '設計、散步', style: '願意嘗試新活動', goal: 'studio', color: '#88805b' },
   { name: '知序', interests: '修理、整理工具', style: '重視時間與歸還', goal: 'workshop', color: '#8e719d' },
-  { name: '小麥', interests: '手作、閱讀', style: '有自己的計畫，也可改變安排', goal: 'workshop', color: '#ae7655' },
+  {
+    name: '小麥',
+    interests: '手作、閱讀',
+    style: '有自己的計畫，也可改變安排',
+    goal: 'workshop',
+    color: '#ae7655',
+  },
 ];
 
 /** Every action a proposal may name, with its display label. */

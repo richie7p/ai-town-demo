@@ -12,7 +12,10 @@ const MIN_WALK_MS = 240;
 
 /** Animation speed multiplier for a playback step duration (0.5×–4×). */
 export const motionRate = duration =>
-  Math.max(0.5, Math.min(4, BASE_DURATION / (Number.isFinite(duration) && duration > 0 ? duration : BASE_DURATION)));
+  Math.max(
+    0.5,
+    Math.min(4, BASE_DURATION / (Number.isFinite(duration) && duration > 0 ? duration : BASE_DURATION)),
+  );
 
 /** Time to walk `distance` pixels at the playback speed. */
 export const walkDuration = (distance, duration) =>

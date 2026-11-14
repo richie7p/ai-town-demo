@@ -11,7 +11,8 @@ import { portrait } from './panels.js';
 const VISIBLE_ROWS = 60;
 /** Cached rows beyond this are trimmed to those currently shown. */
 const CACHE_LIMIT = 480;
-const EMPTY_HTML = '<div class="empty"><span class="empty-icon">☷</span>還沒有這一類片段。<br>開始生活，讓故事慢慢發生。</div>';
+const EMPTY_HTML =
+  '<div class="empty"><span class="empty-icon">☷</span>還沒有這一類片段。<br>開始生活，讓故事慢慢發生。</div>';
 const twoDigits = n => String(n).padStart(2, '0');
 
 export function createJournal(list) {

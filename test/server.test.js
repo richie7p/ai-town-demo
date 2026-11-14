@@ -16,6 +16,7 @@ test('local server serves the demo and excludes repository/private files', { tim
   assert.match(await response.text(), /AI 小鎮/);
   assert.match(response.headers.get('content-security-policy'), /script-src 'self'/);
   assert.equal((await fetch(base + '/src/engine.js')).status, 200);
+  assert.equal((await fetch(base + '/src/ui/panels.js')).status, 200);
   const landscape = await fetch(base + '/assets/town-grand-v1.png');
   assert.equal(landscape.status, 200);
   assert.equal(landscape.headers.get('content-type'), 'image/png');
@@ -37,6 +38,9 @@ test('local server serves the demo and excludes repository/private files', { tim
     '/package-lock.json',
     '/output/demo-replay.json',
     '/src/../../.env',
+    '/src/ui/../../package.json',
+    '/src/ui/nested/dom.js',
+    '/test/engine.test.js',
     '/assets/private.png',
     '/assets/../package.json',
     '/node_modules/phaser/package.json',

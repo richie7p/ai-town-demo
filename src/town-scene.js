@@ -49,10 +49,22 @@ const FOLLOW_LERP = 0.14;
 const WALK_KEYS = new Set(['w', 'a', 's', 'd', 'arrowup', 'arrowleft', 'arrowdown', 'arrowright']);
 /** Keyboard walking: first matching direction wins. */
 const KEY_DIRECTIONS = [
-  [['w', 'arrowup'], [0, -1, 'up']],
-  [['s', 'arrowdown'], [0, 1, 'down']],
-  [['a', 'arrowleft'], [-1, 0, 'left']],
-  [['d', 'arrowright'], [1, 0, 'right']],
+  [
+    ['w', 'arrowup'],
+    [0, -1, 'up'],
+  ],
+  [
+    ['s', 'arrowdown'],
+    [0, 1, 'down'],
+  ],
+  [
+    ['a', 'arrowleft'],
+    [-1, 0, 'left'],
+  ],
+  [
+    ['d', 'arrowright'],
+    [1, 0, 'right'],
+  ],
 ];
 /** Visitor speed in pixels per millisecond; long frames are capped so it never jumps. */
 const VISITOR_SPEED = 0.19;
@@ -134,7 +146,12 @@ export function createTownScene(
     const view = scene?.cameras.main.worldView;
     const worldView =
       view?.width > 0
-        ? { x: Math.max(0, view.x), y: Math.max(0, view.y), width: Math.min(W, view.width), height: Math.min(H, view.height) }
+        ? {
+            x: Math.max(0, view.x),
+            y: Math.max(0, view.y),
+            width: Math.min(W, view.width),
+            height: Math.min(H, view.height),
+          }
         : { x: 0, y: 0, width: W, height: H };
     const signature = [zoom, following, ...Object.values(worldView).map(n => Math.round(n * 10))].join('|');
     if (!force && signature === lastCameraSignature) return;
@@ -144,7 +161,9 @@ export function createTownScene(
 
   function notifyExplore(message = '', force = false) {
     const visitor = scene?.visitor;
-    const location = visitor ? locationAt(visitor.container.x, visitor.container.y) : { zone: null, name: GARDEN_WALKWAY };
+    const location = visitor
+      ? locationAt(visitor.container.x, visitor.container.y)
+      : { zone: null, name: GARDEN_WALKWAY };
     const moving = !!visitor?.moving;
     if (game?.canvas) {
       // Diagnostics for tests and assistive tooling; nothing reads them back.
@@ -159,7 +178,13 @@ export function createTownScene(
     const signature = [exploring, moving, location?.name, location?.room, message].join('|');
     if (!force && signature === lastExploreSignature) return;
     lastExploreSignature = signature;
-    onExploreChange({ active: exploring, moving, location, locationName: location?.name || GARDEN_WALKWAY, message });
+    onExploreChange({
+      active: exploring,
+      moving,
+      location,
+      locationName: location?.name || GARDEN_WALKWAY,
+      message,
+    });
   }
 
   const reportError = error => {
@@ -172,7 +197,14 @@ export function createTownScene(
       if (destroyed) return;
       pending = {
         frame,
-        options: { selected: null, playing: false, duration: 800, reducedMotion: false, animate: true, ...options },
+        options: {
+          selected: null,
+          playing: false,
+          duration: 800,
+          reducedMotion: false,
+          animate: true,
+          ...options,
+        },
       };
       if (!scene?.ready) return;
       try {
@@ -344,7 +376,13 @@ export function createTownScene(
       const camera = this.cameras.main;
       this.input.on('pointerdown', pointer => {
         canvas.focus({ preventScroll: true });
-        this.drag = { x: pointer.x, y: pointer.y, scrollX: camera.scrollX, scrollY: camera.scrollY, moved: false };
+        this.drag = {
+          x: pointer.x,
+          y: pointer.y,
+          scrollX: camera.scrollX,
+          scrollY: camera.scrollY,
+          moved: false,
+        };
       });
       this.input.on('pointermove', pointer => {
         if (!this.drag || !pointer.isDown) {
@@ -481,7 +519,11 @@ export function createTownScene(
       const padY = Math.max(0, (camera.height / camera.zoom - H) / 2);
       camera.setBounds(-padX, -padY, W + padX * 2, H + padY * 2);
       if (reset) camera.stopFollow().centerOn(W / 2, H / 2);
-      else camera.centerOn(Number.isFinite(center.x) ? center.x : W / 2, Number.isFinite(center.y) ? center.y : H / 2);
+      else
+        camera.centerOn(
+          Number.isFinite(center.x) ? center.x : W / 2,
+          Number.isFinite(center.y) ? center.y : H / 2,
+        );
       const target =
         exploring && followingVisitor
           ? this.visitor?.container
@@ -498,14 +540,24 @@ export function createTownScene(
     // Building the town
 
     text(x, y, content, size = 13, color = '#3e5144', extra = {}) {
-      return this.add.text(x, y, content, { fontFamily: FONT, fontSize: `${size}px`, color, resolution: 2, ...extra });
+      return this.add.text(x, y, content, {
+        fontFamily: FONT,
+        fontSize: `${size}px`,
+        color,
+        resolution: 2,
+        ...extra,
+      });
     }
 
     build(frame) {
       const assets = townAssets.registerTownAssets(this, frame.agents);
       this.assets = assets;
       if (!this.textures.exists(assets.backgroundKey)) throw new Error('小鎮背景尚未載入完成。');
-      this.add.image(0, 0, assets.backgroundKey).setOrigin(0, 0).setDisplaySize(W, H).setDepth(DEPTH.background);
+      this.add
+        .image(0, 0, assets.backgroundKey)
+        .setOrigin(0, 0)
+        .setDisplaySize(W, H)
+        .setDepth(DEPTH.background);
       for (const layer of assets.foreground)
         this.add.image(layer.x, layer.y, layer.key).setOrigin(0, 0).setDepth(layer.depth);
       this.buildAmbience(assets.ambient);
@@ -516,7 +568,8 @@ export function createTownScene(
           padding: { x: 7, y: 5 },
         }).setDepth(DEPTH.equipmentLabel);
       this.objectHighlight = this.add.graphics().setDepth(DEPTH.highlight);
-      for (const [index, agent] of frame.agents.entries()) this.addCharacter(agent, assets.characterKeys[agent.id], index);
+      for (const [index, agent] of frame.agents.entries())
+        this.addCharacter(agent, assets.characterKeys[agent.id], index);
       this.buildVisitor();
       this.built = true;
       this.toggleExplore();
@@ -546,17 +599,29 @@ export function createTownScene(
           );
         }
       for (const lamp of ambient?.lamps || []) {
-        this.ambientLights.push(this.add.ellipse(lamp.x, lamp.y, 64, 64, 0xffdf8e, 1).setAlpha(0).setDepth(DEPTH.lampGlow));
-        this.ambientLights.push(this.add.ellipse(lamp.x, lamp.y, 22, 22, 0xffeab3, 1).setAlpha(0).setDepth(DEPTH.lampCore));
+        this.ambientLights.push(
+          this.add.ellipse(lamp.x, lamp.y, 64, 64, 0xffdf8e, 1).setAlpha(0).setDepth(DEPTH.lampGlow),
+        );
+        this.ambientLights.push(
+          this.add.ellipse(lamp.x, lamp.y, 22, 22, 0xffeab3, 1).setAlpha(0).setDepth(DEPTH.lampCore),
+        );
       }
-      this.phaseOverlay = this.add.rectangle(0, 0, W, H, 0x485677, 1).setAlpha(0).setOrigin(0, 0).setDepth(DEPTH.evening);
+      this.phaseOverlay = this.add
+        .rectangle(0, 0, W, H, 0x485677, 1)
+        .setAlpha(0)
+        .setOrigin(0, 0)
+        .setDepth(DEPTH.evening);
     }
 
     registerCharacterAnimations(id, texture) {
       for (const [name, { start, end, ...timing }] of Object.entries(RESIDENT_CLIPS)) {
         const key = `${id}-${name}`;
         if (this.anims.exists(key)) this.anims.remove(key);
-        this.anims.create({ key, frames: this.anims.generateFrameNumbers(texture, { start, end }), ...timing });
+        this.anims.create({
+          key,
+          frames: this.anims.generateFrameNumbers(texture, { start, end }),
+          ...timing,
+        });
       }
     }
 
@@ -831,9 +896,14 @@ export function createTownScene(
         actor.seated = seated;
         this.bodyOffset(actor, seated ? SEATED_OFFSET : 0);
         const directional = `${pose}-${actor.direction}`;
-        this.play(actor, RESIDENT_CLIPS[directional] ? directional : pose, this.options.playing && !this.options.reducedMotion);
+        this.play(
+          actor,
+          RESIDENT_CLIPS[directional] ? directional : pose,
+          this.options.playing && !this.options.reducedMotion,
+        );
       };
-      if (animate && !this.options.reducedMotion && actor.seated !== seated) this.posture(actor, seated, finished);
+      if (animate && !this.options.reducedMotion && actor.seated !== seated)
+        this.posture(actor, seated, finished);
       else finished();
     }
 
@@ -908,9 +978,16 @@ export function createTownScene(
         if (!actor) continue;
         const speaker = frame.agents.find(a => a.id === actor.id)?.name ?? '';
         const ellipsis = event.text.length > BUBBLE_TEXT_LIMIT ? '…' : '';
-        const text = this.text(12, 29, wrapText(String(event.text).slice(0, BUBBLE_TEXT_LIMIT)) + ellipsis, 13, '#405044', {
-          lineSpacing: 4,
-        });
+        const text = this.text(
+          12,
+          29,
+          wrapText(String(event.text).slice(0, BUBBLE_TEXT_LIMIT)) + ellipsis,
+          13,
+          '#405044',
+          {
+            lineSpacing: 4,
+          },
+        );
         const width = Math.min(256, Math.max(164, text.width + 24));
         const height = text.height + 42;
         const graphics = this.add.graphics();
@@ -919,11 +996,15 @@ export function createTownScene(
         graphics
           .lineStyle(1, event.participants[0] === selected ? 0x689879 : 0xb9c7a8, 1)
           .strokeRoundedRect(0, 0, width, height, 8);
-        graphics.fillStyle(0xfffcf3, 1).fillTriangle(width / 2 - 6, height - 1, width / 2 + 6, height - 1, width / 2, height + 9);
+        graphics
+          .fillStyle(0xfffcf3, 1)
+          .fillTriangle(width / 2 - 6, height - 1, width / 2 + 6, height - 1, width / 2, height + 9);
         const title = this.text(12, 8, `${speaker} · ${ACTION_NAMES[event.type] || '交談'}`, 11, '#8c805e', {
           fontStyle: 'bold',
         });
-        const container = this.add.container(0, 0, [graphics, title, text]).setDepth(DEPTH.bubbles + this.bubbles.length);
+        const container = this.add
+          .container(0, 0, [graphics, title, text])
+          .setDepth(DEPTH.bubbles + this.bubbles.length);
         this.bubbles.push({ actor, container, width, height, event });
       }
       this.layoutBubbles();
@@ -932,7 +1013,12 @@ export function createTownScene(
     /** Bubbles hide while their speaker walks and are re-placed whenever someone moves. */
     layoutBubbles() {
       const spots = placeBubbles(
-        this.bubbles.map(({ actor, width, height }) => ({ x: actor.container.x, y: actor.container.y, width, height })),
+        this.bubbles.map(({ actor, width, height }) => ({
+          x: actor.container.x,
+          y: actor.container.y,
+          width,
+          height,
+        })),
         WORLD_SIZE,
       );
       this.bubbles.forEach(({ actor, container }, i) => {
@@ -963,8 +1049,15 @@ export function createTownScene(
         .container(spawn[0], spawn[1], [shadow, halo, sprite])
         .setDepth(spawn[1] + 0.2)
         .setVisible(false);
-      const badges = this.add.container(spawn[0], spawn[1], [label]).setDepth(DEPTH.visitorBadge).setVisible(false);
-      const marker = this.add.ellipse(0, 0, 22, 12).setStrokeStyle(2, 0x399d94, 0.8).setVisible(false).setDepth(DEPTH.marker);
+      const badges = this.add
+        .container(spawn[0], spawn[1], [label])
+        .setDepth(DEPTH.visitorBadge)
+        .setVisible(false);
+      const marker = this.add
+        .ellipse(0, 0, 22, 12)
+        .setStrokeStyle(2, 0x399d94, 0.8)
+        .setVisible(false)
+        .setDepth(DEPTH.marker);
       const route = this.add.graphics().setDepth(DEPTH.route);
       this.visitor = {
         container,
@@ -1080,7 +1173,8 @@ export function createTownScene(
     updateVisitor(delta) {
       const visitor = this.visitor;
       if (!exploring || !visitor) return;
-      const canvasFocused = document.activeElement === this.game.canvas && !document.querySelector('dialog[open]');
+      const canvasFocused =
+        document.activeElement === this.game.canvas && !document.querySelector('dialog[open]');
       if (!canvasFocused) this.keys.clear();
 
       // A held key walks one tile at a time; it does not interrupt a clicked route's current step.

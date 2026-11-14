@@ -59,7 +59,8 @@ export function observe(state, actorId) {
   );
   const openConversation = id => state.conversations.some(c => c.id === id && c.closedTick === null);
   const messages = state.messages.filter(
-    m => m.to === actorId && !m.replied && tick - m.tick <= RECENT_TICKS && openConversation(m.conversationId),
+    m =>
+      m.to === actorId && !m.replied && tick - m.tick <= RECENT_TICKS && openConversation(m.conversationId),
   );
   const queryTags = [
     actor.zone,

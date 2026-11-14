@@ -29,12 +29,36 @@ export const EVENT_LABELS = {
 
 export const FAILURE_KINDS = ['invalid', 'capacity_failure', 'join_failed'];
 /** Everyday moments: what the journal and "recent" list show by default. */
-export const LIFE_KINDS = ['talk', 'reply', 'invite', 'accept', 'decline', 'cooperation', 'work', 'move', 'rest', 'walk', 'wait', 'borrow'];
+export const LIFE_KINDS = [
+  'talk',
+  'reply',
+  'invite',
+  'accept',
+  'decline',
+  'cooperation',
+  'work',
+  'move',
+  'rest',
+  'walk',
+  'wait',
+  'borrow',
+];
 
 /** Event types shown by each journal filter (missing filter: everything). */
 export const JOURNAL_FILTERS = {
   life: LIFE_KINDS,
-  social: ['talk', 'reply', 'invite', 'accept', 'decline', 'cooperation', 'interaction', 'initiation', 'invitation_outcome', 'join'],
+  social: [
+    'talk',
+    'reply',
+    'invite',
+    'accept',
+    'decline',
+    'cooperation',
+    'interaction',
+    'initiation',
+    'invitation_outcome',
+    'join',
+  ],
   equipment: ['borrow', 'borrow_attempt', 'capacity_failure', 'return', 'release', 'work'],
   failed: FAILURE_KINDS,
 };
