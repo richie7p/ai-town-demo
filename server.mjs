@@ -39,7 +39,7 @@ const server = createServer(async (req, res) => {
     return;
   }
   if (path === '/') path = '/index.html';
-  if (!(publicFiles.has(path) || vendorFiles.has(path) || /^\/src\/[a-z-]+\.js$/.test(path))) {
+  if (!(publicFiles.has(path) || vendorFiles.has(path) || /^\/src\/(?:ui\/)?[a-z-]+\.js$/.test(path))) {
     res.writeHead(404);
     res.end('Not found');
     return;

@@ -1,109 +1,80 @@
+// Page controller: playback, background jobs and wiring between the HTML
+// controls, the side panels and the Phaser town scene.
+//
+// The run (`world`) only grows. `frames` holds one view frame per executed tick
+// and `cursor` is the tick being shown; playing from an earlier cursor replays
+// saved frames and only runs the policy again once it reaches the newest tick.
 import { createWorld, step } from './src/engine.js';
 import { propose } from './src/policy.js';
 import { exportRun } from './src/replay.js';
 import { viewFrame } from './src/presentation.js';
-import { residentPortrait } from './src/resident-art.js';
-import { WORLD_SIZE } from './src/town-view-model.js';
+import { WORLD_SIZE, MIN_ZOOM, MAX_ZOOM } from './src/town-view-model.js';
 import { createMinimapDataUrl } from './src/town-map.js';
 import { activityAnchor } from './src/activity-anchors.js';
 import { createTownScene } from './src/town-scene.js';
-import { ZONES, dayOf, slotOf, ACTION_NAMES } from './src/config.js';
+import { ZONES, ACTION_NAMES, TOTAL_TICKS, TICKS_PER_DAY, dayOf, slotOf } from './src/config.js';
+import { $, escapeHTML, percent, reducedMotion, scrollBehavior, setHTML, setText } from './src/ui/dom.js';
+import { conditionName, phaseOfSlot } from './src/ui/labels.js';
+import { createJournal } from './src/ui/journal.js';
+import {
+  portrait,
+  profileHTML,
+  nowTabHTML,
+  memoryTabHTML,
+  connectionsTabHTML,
+  networkSVG,
+  pairLinksHTML,
+  networkStatsHTML,
+  eventEvidenceHTML,
+  pairEvidenceHTML,
+  comparisonHTML,
+} from './src/ui/panels.js';
 
-const $ = id => document.getElementById(id);
-const esc = value =>
-  String(value ?? '').replace(
-    /[&<>"']/g,
-    c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
-  );
-const percent = value => (value === null ? 'NA' : `${(value * 100).toFixed(1)}%`);
-const reduced = matchMedia('(prefers-reduced-motion: reduce)');
-const failureKinds = ['invalid', 'capacity_failure', 'join_failed'];
-const socialKinds = [
-  'talk',
-  'reply',
-  'invite',
-  'accept',
-  'decline',
-  'cooperation',
-  'interaction',
-  'initiation',
-  'invitation_outcome',
-  'join',
-];
-const equipmentKinds = ['borrow', 'borrow_attempt', 'capacity_failure', 'return', 'release', 'work'];
-const lifeKinds = [
-  'talk',
-  'reply',
-  'invite',
-  'accept',
-  'decline',
-  'cooperation',
-  'work',
-  'move',
-  'rest',
-  'walk',
-  'wait',
-  'borrow',
-];
-const kinds = {
-  talk: '交談',
-  reply: '回覆',
-  invite: '邀請合作',
-  accept: '接受邀請',
-  decline: '婉拒邀請',
-  borrow: '借用成功',
-  borrow_attempt: '借用嘗試',
-  capacity_failure: '設備不足',
-  return: '提前歸還',
-  release: '歸還完成',
-  move: '移動',
-  work: '設備活動',
-  join: '加入合作',
-  cooperation: '合作完成',
-  interaction: '互動日證據',
-  initiation: '發起已驗證',
-  invitation_outcome: '邀請結算',
-  rest: '休息',
-  walk: '散步',
-  wait: '等待',
-  invalid: '無效行動',
-  join_failed: '未能加入',
-};
-let state = createWorld(),
-  frames = [viewFrame(state)],
-  viewed = 0,
-  selected = 'A01',
-  activeTab = 'now';
-let timer = null,
-  busy = false,
-  worker = null,
-  toastTimer;
-const frame = () => frames[viewed];
-// Several panels query the same prefix of the log per render; compute it once per world position.
-let pastCache = { events: null, viewed: -1, list: [] };
-const pastEvents = () => {
-  if (pastCache.events !== state.events || pastCache.viewed !== viewed)
-    pastCache = { events: state.events, viewed, list: state.events.filter(event => event.tick <= viewed) };
+const TABS = ['now', 'memory', 'connections'];
+const TAB_RENDERERS = { now: nowTabHTML, memory: memoryTabHTML, connections: connectionsTabHTML };
+const MAX_IMPORT_BYTES = 20 * 1024 * 1024;
+const TOAST_MS = 5800;
+/** Residents animate for 45% of the playback interval, leaving a pause between steps. */
+const ANIMATION_SHARE = 0.45;
+const SCENE_CONTROLS = ['zoom-in', 'camera-reset', 'camera-follow', 'town-minimap', 'explore-toggle'];
+const RUN_CONTROLS = ['reset', 'step', 'play', 'finish', 'compare', 'import', 'export', 'settings-open', 'latest'];
+
+// ---------------------------------------------------------------------------
+// State
+
+let world = createWorld();
+let frames = [viewFrame(world)];
+let cursor = 0;
+let selectedId = 'A01';
+let activeTab = 'now';
+let playTimer = null;
+let busy = false;
+let worker = null;
+let toastTimer;
+let cameraFollowing = false;
+let exploring = false;
+let inspectedObject = null;
+
+const frame = () => frames[cursor];
+const resident = id => frame().agents.find(a => a.id === id);
+const playbackInterval = () => Number($('speed').value);
+
+// Several panels need every event up to the cursor; compute that prefix once per position.
+let pastCache = { events: null, cursor: -1, list: [] };
+function pastEvents() {
+  if (pastCache.events !== world.events || pastCache.cursor !== cursor)
+    pastCache = { events: world.events, cursor, list: world.events.filter(event => event.tick <= cursor) };
   return pastCache.list;
-};
-// Skip DOM writes whose content is unchanged, so stepping does not rebuild panels (and their portraits) needlessly.
-const renderedHTML = new WeakMap();
-function setHTML(el, html) {
-  if (renderedHTML.get(el) === html) return;
-  renderedHTML.set(el, html);
-  el.innerHTML = html;
 }
-function setText(id, text) {
-  const el = $(id),
-    value = String(text);
-  if (el.textContent !== value) el.textContent = value;
-}
-const actor = id => frame().agents.find(a => a.id === id);
-let cameraFollowing = false,
-  exploring = false,
-  inspectedObject = null;
+const currentView = () => ({ frame: frame(), selected: selectedId, resident, pastEvents: pastEvents() });
+
+const journal = createJournal($('events'));
+
+// ---------------------------------------------------------------------------
+// Town scene
+
 const scene = createTownScene($('town-stage'), {
-  onSelect: id => selectAgent(id),
+  onSelect: id => selectResident(id),
   onExploreChange: ({ active, moving, locationName, message }) => {
     exploring = active;
     $('explore-toggle').setAttribute('aria-pressed', String(active));
@@ -117,19 +88,19 @@ const scene = createTownScene($('town-stage'), {
   },
   onInspectObject: object => {
     inspectedObject = object;
-    renderObject();
+    renderInspectedObject();
   },
   onCameraChange: ({ zoom, following, worldView }) => {
     cameraFollowing = following;
     $('zoom-level').textContent = `${Math.round(zoom * 100)}%`;
-    $('zoom-out').disabled = zoom <= 1;
-    $('zoom-in').disabled = zoom >= 3.5;
+    $('zoom-out').disabled = zoom <= MIN_ZOOM;
+    $('zoom-in').disabled = zoom >= MAX_ZOOM;
     if (worldView) {
-      const rect = $('minimap-viewport');
-      rect.style.left = `${(100 * worldView.x) / WORLD_SIZE.width}%`;
-      rect.style.top = `${(100 * worldView.y) / WORLD_SIZE.height}%`;
-      rect.style.width = `${(100 * worldView.width) / WORLD_SIZE.width}%`;
-      rect.style.height = `${(100 * worldView.height) / WORLD_SIZE.height}%`;
+      const viewport = $('minimap-viewport').style;
+      viewport.left = `${(100 * worldView.x) / WORLD_SIZE.width}%`;
+      viewport.top = `${(100 * worldView.y) / WORLD_SIZE.height}%`;
+      viewport.width = `${(100 * worldView.width) / WORLD_SIZE.width}%`;
+      viewport.height = `${(100 * worldView.height) / WORLD_SIZE.height}%`;
     }
     $('camera-follow').setAttribute('aria-pressed', String(following));
     $('camera-follow').textContent = following ? '◎ 正在跟隨' : '◎ 跟隨居民';
@@ -139,112 +110,190 @@ const scene = createTownScene($('town-stage'), {
     $('town-stage').dataset.renderer = renderer;
     $('town-stage').dataset.phaserVersion = version;
     $('minimap-image').src = minimapUrl || createMinimapDataUrl();
-    for (const id of ['zoom-in', 'camera-reset', 'camera-follow', 'town-minimap', 'explore-toggle'])
-      $(id).disabled = false;
-    document.querySelectorAll('[data-zone]').forEach(button => (button.disabled = false));
+    for (const id of SCENE_CONTROLS) $(id).disabled = false;
+    setZoneButtonsDisabled(false);
   },
   onError: error => {
     console.error('Town renderer:', error);
     $('scene-status').hidden = false;
     $('scene-status').classList.add('failed');
     $('scene-status').textContent = '小鎮畫面未能載入，請重新整理頁面。居民資料與生活紀錄仍可從下方查看。';
-    for (const id of [
-      'zoom-in',
-      'zoom-out',
-      'camera-reset',
-      'camera-follow',
-      'town-minimap',
-      'explore-toggle',
-    ])
-      $(id).disabled = true;
-    document.querySelectorAll('[data-zone]').forEach(button => (button.disabled = true));
+    for (const id of ['zoom-out', ...SCENE_CONTROLS]) $(id).disabled = true;
+    setZoneButtonsDisabled(true);
   },
 });
 
-function portrait(agent) {
-  return `<img src="${residentPortrait(agent)}" alt="" draggable="false">`;
+function setZoneButtonsDisabled(disabled) {
+  for (const button of document.querySelectorAll('[data-zone]')) button.disabled = disabled;
 }
-function renderObject() {
+
+function renderScene(animate) {
+  scene.render(frame(), {
+    selected: selectedId,
+    playing: !!playTimer,
+    duration: playbackInterval() * ANIMATION_SHARE,
+    reducedMotion: reducedMotion.matches,
+    animate,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Rendering
+
+function render({ animate = false } = {}) {
+  const current = frame();
+  const slot = slotOf(current.tick);
+  setText('day-label', `第 ${String(dayOf(current.tick)).padStart(2, '0')} 天`);
+  setText('phase-label', current.tick ? phaseOfSlot(slot) : '清晨，準備出門');
+  setText('condition-label', `${conditionName(current.config.capacity)} · 每類 ${current.config.capacity} 件設備`);
+  setText('timeline-label', `第 ${dayOf(current.tick)} 天 · ${current.tick ? slot : 0} / ${TICKS_PER_DAY}`);
+  setText('timeline-total', `${current.tick} / ${TOTAL_TICKS}`);
+  $('seek').max = world.tick;
+  $('seek').value = cursor;
+  setText('view-mode', viewModeLabel());
+  $('latest').hidden = cursor === world.tick;
+
+  const view = currentView();
+  renderResidentList(current);
+  renderInspector(view);
+  renderJournal();
+  setHTML($('network'), networkSVG(view));
+  setHTML($('pair-links'), pairLinksHTML(view));
+  setHTML($('network-stats'), networkStatsHTML(view));
+  renderInspectedObject();
+  renderResearchSummary(current.metrics, current.tick);
+  updateControls();
+  renderScene(animate);
+}
+
+function viewModeLabel() {
+  if (busy) return '正在處理';
+  if (cursor < world.tick) return '歷史回放';
+  if (world.tick === TOTAL_TICKS) return '十日完成';
+  return world.tick ? '最新進度' : '尚未開始';
+}
+
+/** One button per resident. Portraits only change with a new town; each step updates the label. */
+function renderResidentList(current) {
+  const list = $('residents');
+  if (!list.children.length)
+    list.innerHTML = current.agents
+      .map(a => `<button class="resident" id="resident-${a.id}" data-agent="${a.id}"></button>`)
+      .join('');
+  for (const agent of current.agents) {
+    const button = $('resident-' + agent.id);
+    const proposal = current.trace?.proposals.find(p => p.actor === agent.id);
+    const selected = agent.id === selectedId;
+    button.classList.toggle('selected', selected);
+    button.setAttribute('aria-pressed', String(selected));
+    const zone = ZONES[agent.zone].name;
+    button.setAttribute('aria-label', `${agent.name}，${zone}，${proposal ? ACTION_NAMES[proposal.action] : '準備開始'}`);
+    setHTML(button, `<div class="mini-portrait">${portrait(agent)}</div><strong>${escapeHTML(agent.name)}</strong><small></small>`);
+    const label = proposal ? ACTION_NAMES[proposal.action] : zone;
+    if (button.lastElementChild.textContent !== label) button.lastElementChild.textContent = label;
+  }
+}
+
+function renderInspector(view = currentView()) {
+  const agent = view.frame.agents.find(a => a.id === selectedId);
+  $('agent-zone').textContent = ZONES[agent.zone].name;
+  setHTML($('agent-profile'), profileHTML(agent));
+  setHTML($('agent-detail'), TAB_RENDERERS[activeTab](view));
+}
+
+function renderJournal() {
+  const { total, shown } = journal.render({
+    pastEvents: pastEvents(),
+    filter: $('event-filter').value,
+    resident,
+    townId: frames[0],
+  });
+  setText('events-foot', `截至時段 ${cursor} · 此類共 ${total} 筆，顯示最近 ${shown} 筆。點選可回查事件。`);
+}
+
+/** The furniture card, with whoever is placed at that piece right now. */
+function renderInspectedObject() {
   $('object-card').hidden = !inspectedObject;
   if (!inspectedObject) return;
   $('object-name').textContent = inspectedObject.name;
   $('object-description').textContent = inspectedObject.description;
   $('object-zone').textContent = ZONES[inspectedObject.zone]?.name || '小鎮公共空間';
-  const nearby = frame().agents.filter(
-    agent => activityAnchor(agent, frame()).objectId === inspectedObject.id,
-  );
-  $('object-occupants').textContent = nearby.length
-    ? `此刻在這裡：${nearby.map(a => a.name).join('、')}`
+  const here = frame().agents.filter(agent => activityAnchor(agent, frame()).objectId === inspectedObject.id);
+  $('object-occupants').textContent = here.length
+    ? `此刻在這裡：${here.map(a => a.name).join('、')}`
     : '此刻沒有居民使用這個位置。';
 }
+
+function renderResearchSummary(m, tick) {
+  setText('progress-value', `${tick} / ${TOTAL_TICKS}`);
+  setText('interaction-value', m.interactionDays);
+  setText('y-value', m.final ? percent(m.y) : '—');
+  setText('y-detail', m.final ? `${m.qualifiedLinks} / 28 對 · 工程示範值` : '尚未完成十日，不顯示最終指標');
+  setText('core-value', m.final ? m.persistentCores.length : '—');
+  const thresholds = m.final ? ` 連結門檻 2／3／4 日：${[2, 3, 4].map(n => percent(m.sensitivity[n])).join('／')}。` : '';
+  setText(
+    'research-detail',
+    `設備借用：${m.borrowAttempts} 次合法嘗試、${m.capacityFailures} 次容量失敗（${percent(m.capacityFailureRate)}）。` +
+      `合作完成率：${percent(m.cooperationRate)}，分母 ${m.observedInvitations}，尚未到期 ${m.rightCensoredInvitations}。` +
+      thresholds +
+      ' 全部數值只使用目前回放位置之前的事件。',
+  );
+}
+
+function updateControls() {
+  for (const id of RUN_CONTROLS) $(id).disabled = busy;
+  $('seek').disabled = busy || !world.tick;
+  if (!busy) {
+    $('step').disabled = cursor >= TOTAL_TICKS;
+    $('finish').disabled = world.tick >= TOTAL_TICKS;
+  }
+  $('play').textContent = playButtonLabel();
+  $('playing-dot').classList.toggle('playing', !!playTimer);
+}
+
+function playButtonLabel() {
+  if (playTimer) return 'Ⅱ 暫停生活';
+  if (cursor === TOTAL_TICKS) return '↻ 從頭回放';
+  if (cursor < world.tick) return '▶ 播放回放';
+  return cursor ? '▶ 繼續生活' : '▶ 開始生活';
+}
+
 function toast(message) {
   $('toast').textContent = message;
   $('toast').hidden = false;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => {
     $('toast').hidden = true;
-  }, 5800);
+  }, TOAST_MS);
 }
-function controls() {
-  for (const id of [
-    'reset',
-    'step',
-    'play',
-    'finish',
-    'compare',
-    'import',
-    'export',
-    'settings-open',
-    'latest',
-  ])
-    $(id).disabled = busy;
-  $('seek').disabled = busy || !state.tick;
-  if (!busy) {
-    $('step').disabled = viewed >= 120;
-    $('finish').disabled = state.tick >= 120;
-  }
-  $('play').textContent = timer
-    ? 'Ⅱ 暫停生活'
-    : viewed === 120
-      ? '↻ 從頭回放'
-      : viewed < state.tick
-        ? '▶ 播放回放'
-        : viewed
-          ? '▶ 繼續生活'
-          : '▶ 開始生活';
-  $('playing-dot').classList.toggle('playing', !!timer);
-}
+
+// ---------------------------------------------------------------------------
+// Playback
+
+/** Stop playing and freeze any walk or sit transition where it is. */
 function stop() {
-  clearInterval(timer);
-  timer = null;
-  controls();
-  scene.render(frame(), {
-    selected,
-    playing: false,
-    duration: Number($('speed').value) * 0.45,
-    reducedMotion: reduced.matches,
-    animate: false,
-  });
+  clearInterval(playTimer);
+  playTimer = null;
+  updateControls();
+  renderScene(false);
 }
-function selectAgent(id) {
-  if (!actor(id)) return;
-  selected = id;
-  render({ animate: false });
-}
+
+/** Show the next tick: a saved one when replaying, otherwise run the policy once. */
 function advance() {
-  if (timer && scene.isTransitioning()) return;
+  // While playing, wait for residents to finish walking or sitting down.
+  if (playTimer && scene.isTransitioning()) return;
   try {
-    if (viewed < state.tick) viewed++;
-    else if (state.tick < 120) {
-      state = step(state, propose(state));
-      frames.push(viewFrame(state));
-      viewed = state.tick;
+    if (cursor < world.tick) cursor++;
+    else if (world.tick < TOTAL_TICKS) {
+      world = step(world, propose(world));
+      frames.push(viewFrame(world));
+      cursor = world.tick;
     } else {
       stop();
       return;
     }
-    render({ animate: viewed !== 120 });
-    if (viewed === 120) {
+    render({ animate: cursor !== TOTAL_TICKS });
+    if (cursor === TOTAL_TICKS) {
       stop();
       toast('十日生活已完成，可以從頭回放，或匯出完整紀錄。');
     }
@@ -253,392 +302,177 @@ function advance() {
     toast(error.message);
   }
 }
-function start() {
+
+function togglePlay() {
   if (busy) return;
-  if (timer) {
+  if (playTimer) {
     stop();
     return;
   }
-  if (viewed === 120) {
-    viewed = 0;
+  if (cursor === TOTAL_TICKS) {
+    cursor = 0;
     render({ animate: false });
   }
-  timer = setInterval(advance, Number($('speed').value));
-  controls();
-  if (viewed === 0) advance();
+  playTimer = setInterval(advance, playbackInterval());
+  updateControls();
+  if (cursor === 0) advance();
   else render({ animate: false });
 }
-function background(type, payload, apply) {
+
+function jumpTo(tick) {
+  stop();
+  cursor = tick;
+  render();
+}
+
+function selectResident(id) {
+  if (!resident(id)) return;
+  selectedId = id;
+  render({ animate: false });
+}
+
+/** Replace the run (new town or verified import) and show its first tick. */
+function replaceRun(nextWorld, nextFrames, nextCursor) {
+  world = nextWorld;
+  frames = nextFrames;
+  cursor = nextCursor;
+}
+
+// ---------------------------------------------------------------------------
+// Background jobs (see src/runner-worker.js). The current run stays until a job succeeds.
+
+const JOB_MESSAGES = {
+  compare: '正在比較同種子的兩座小鎮，世界與記憶各自獨立…',
+  import: '正在驗證紀錄與回放…',
+  finish: '正在完成這十天的生活…',
+};
+
+function runInBackground(type, payload, onResult) {
   stop();
   busy = true;
-  controls();
+  updateControls();
   worker = new Worker(new URL('./src/runner-worker.js', import.meta.url), { type: 'module' });
-  toast(
-    type === 'compare'
-      ? '正在比較同種子的兩座小鎮，世界與記憶各自獨立…'
-      : type === 'import'
-        ? '正在驗證紀錄與回放…'
-        : '正在完成這十天的生活…',
-  );
-  const finish = () => {
+  toast(JOB_MESSAGES[type] ?? JOB_MESSAGES.finish);
+  const done = () => {
     worker?.terminate();
     worker = null;
     busy = false;
-    controls();
+    updateControls();
   };
   worker.onmessage = ({ data }) => {
     if (data.type === 'progress') {
       $('toast').textContent = `第 ${dayOf(data.tick)} 天已完成，正在繼續…`;
       return;
     }
-    finish();
+    done();
     if (data.type === 'error') {
       toast(`目前場次保留：${data.message}`);
       return;
     }
     try {
-      apply(data);
+      onResult(data);
     } catch (error) {
       toast(error.message);
     }
   };
   worker.onerror = () => {
-    finish();
+    done();
     toast('處理未完成，原場次保留，請再試一次。');
   };
   worker.postMessage({ type, ...payload });
 }
-function renderResidents(current) {
-  if (!$('residents').children.length)
-    $('residents').innerHTML = current.agents
-      .map(a => `<button class="resident" id="resident-${a.id}" data-agent="${a.id}"></button>`)
-      .join('');
-  for (const a of current.agents) {
-    const el = $('resident-' + a.id),
-      p = current.trace?.proposals.find(p => p.actor === a.id);
-    el.classList.toggle('selected', a.id === selected);
-    el.setAttribute('aria-pressed', String(a.id === selected));
-    el.setAttribute(
-      'aria-label',
-      `${a.name}，${ZONES[a.zone].name}，${p ? ACTION_NAMES[p.action] : '準備開始'}`,
-    );
-    // The portrait and name only change with a new town; each step updates just the activity label.
-    const identity = `<div class="mini-portrait">${portrait(a)}</div><strong>${esc(a.name)}</strong><small></small>`;
-    if (renderedHTML.get(el) !== identity) {
-      renderedHTML.set(el, identity);
-      el.innerHTML = identity;
-    }
-    const label = p ? ACTION_NAMES[p.action] : ZONES[a.zone].name;
-    if (el.lastElementChild.textContent !== label) el.lastElementChild.textContent = label;
-  }
-}
-function renderAgent(current) {
-  const a = current.agents.find(a => a.id === selected),
-    p = current.trace?.proposals.find(p => p.actor === selected),
-    o = current.trace?.observations[selected];
-  const events = pastEvents(),
-    result = p && events.filter(e => e.proposalId === p.id),
-    failure = result?.find(e => failureKinds.includes(e.type));
-  const held = current.equipment.find(e => e.owner === selected);
-  $('agent-zone').textContent = ZONES[a.zone].name;
-  setHTML(
-    $('agent-profile'),
-    `<div class="agent-profile"><div class="portrait">${portrait(a)}</div><div><h2>${esc(a.name)}<small>${a.id}</small></h2><p>${esc(a.interests)}</p></div></div><p class="agent-style">${esc(a.style)}</p>`,
-  );
-  if (activeTab === 'now') {
-    const recent = events
-      .filter(e => e.participants.includes(selected) && lifeKinds.includes(e.type))
-      .slice(-3)
-      .reverse();
-    setHTML(
-      $('agent-detail'),
-      `<div class="detail-kicker">${current.tick ? `第 ${dayOf(current.tick)} 天 · 時段 ${slotOf(current.tick)} 的提議` : '新的一天，還有很多可能'}</div><h3 class="current-action">${p ? ACTION_NAMES[p.action] + (p.target ? ' · ' + esc(actor(p.target)?.name ?? p.target) : '') : '準備開始今天的生活'}</h3><p class="thought">${p ? esc(p.text || (p.destination ? `前往${ZONES[p.destination]?.name ?? p.destination}` : '依目前狀態安排自己的活動。')) : '點選「開始生活」，看看誰會先出門，又會遇見誰。'}</p>${p ? `<div class="outcome ${failure ? 'failed' : ''}"><span class="status-dot"></span><span>${esc(failure?.reason || result?.find(e => !['borrow_attempt'].includes(e.type))?.text || '本步已結算')}</span></div>` : ''}<div class="equipment-info">${held ? `持有${held.type === 'tools' ? '製作工具' : '攝影設備'} · ${held.usableFrom > current.tick ? '下一時段可用' : '可於下一步使用'}<br>於第 ${dayOf(held.until)} 天時段 ${slotOf(held.until)} 結束歸還` : '目前未持有設備，可自由安排下一步。'}</div>${recent.length ? '<h4 class="mini-heading">最近的小事</h4>' + recent.map(e => `<div class="recent-line"><small>第 ${dayOf(e.tick)} 天 · ${kinds[e.type]}</small><button data-event="${e.id}">${esc(e.text)}</button></div>`).join('') : ''}`,
-    );
-  } else if (activeTab === 'memory') {
-    setHTML(
-      $('agent-detail'),
-      `<p class="memory-intro">此步決策前實際取得的事件。${o ? `當時位於${ZONES[o.actor.zone].name}，共 ${o.provided.length} 筆。` : '尚未產生第一份觀察。'}<br>綠邊表示這一步的規則策略有引用，點選可查來源。</p>${o?.provided.length ? o.provided.map(m => `<button class="memory-card ${p.citedMemoryIds.includes(m.id) ? 'cited' : ''}" data-event="${esc(m.id)}"><span>D${m.day} · 時段 ${slotOf(m.tick)} · ${m.score === null ? '近期觀察' : '較早記憶'}${m.day < dayOf(current.tick) ? ' · 跨日' : ''}</span>${esc(m.text)}${p.citedMemoryIds.includes(m.id) ? '<br><em>本步已引用</em>' : ''}</button>`).join('') : '<div class="empty"><span class="empty-icon">▤</span>生活開始後，記憶也會慢慢累積。</div>'}<p class="memory-intro">${o ? `約 ${o.estimatedTokens} tokens${o.truncated ? '，已依容量截取' : ''}。` : ''}容量為近似估算。尚未接入模型反思；引用不等於因果證據。</p>`,
-    );
-  } else {
-    const dyads = current.metrics.dyads
-      .filter(d => d.allDays.length && [d.a, d.b].includes(selected))
-      .sort((a, b) => b.allDays.length - a.allDays.length || a.key.localeCompare(b.key));
-    setHTML(
-      $('agent-detail'),
-      '<p class="memory-intro">截至這個時段，已經留下有效回覆或完成合作的交集。互動日數不代表友誼。</p>' +
-        (dyads.length
-          ? dyads
-              .map(d => {
-                const other = actor(d.a === selected ? d.b : d.a);
-                return `<button class="connection-row" data-pair="${d.key}"><span class="mini-portrait">${portrait(other)}</span><span><strong>${esc(other.name)}</strong><small>${d.allDays.map(day => `D${day}`).join(' · ')}</small></span><span>${d.allDays.length} 日 ↗</span></button>`;
-              })
-              .join('')
-          : '<div class="empty"><span class="empty-icon">↔</span>還沒有完成的互動。<br>先看看大家今天會去哪裡。</div>'),
-    );
-  }
-}
-// Journal rows are immutable per event, so each is built once and reused; a step only inserts the
-// new rows and drops the oldest instead of re-parsing sixty rows and their portraits.
-let eventRows = new Map(),
-  eventRowsWorld = null,
-  eventListKey = null;
-function eventRow(e) {
-  let row = eventRows.get(e.id);
-  if (!row) {
-    const a = actor(e.participants[0]),
-      template = document.createElement('template');
-    template.innerHTML = `<button class="event-row" data-event="${e.id}"><span class="event-time">DAY ${String(dayOf(e.tick)).padStart(2, '0')}<small>時段 ${String(slotOf(e.tick)).padStart(2, '0')}</small></span><span class="event-portrait">${a ? portrait(a) : ''}</span><span class="event-body"><strong>${esc(a?.name ?? '小鎮')}</strong><span class="event-tag">${kinds[e.type] || esc(e.type)}</span><p>${esc(e.text)}</p></span><span class="event-arrow">↗</span></button>`;
-    row = template.content.firstElementChild;
-    eventRows.set(e.id, row);
-  }
-  return row;
-}
-function renderEvents() {
-  const filter = $('event-filter').value,
-    list = $('events');
-  const pool = pastEvents().filter(
-    e =>
-      filter === 'all' ||
-      (filter === 'life'
-        ? lifeKinds
-        : filter === 'social'
-          ? socialKinds
-          : filter === 'equipment'
-            ? equipmentKinds
-            : failureKinds
-      ).includes(e.type),
-  );
-  const events = pool.slice(-60).reverse();
-  // Rows show resident names and portraits, which belong to one town; a new or imported town starts a new cache.
-  if (eventRowsWorld !== frames[0]) {
-    eventRowsWorld = frames[0];
-    eventRows = new Map();
-    eventListKey = null;
-  }
-  const key = events.map(e => e.id).join();
-  if (key !== eventListKey) {
-    if (!events.length)
-      list.innerHTML =
-        '<div class="empty"><span class="empty-icon">☷</span>還沒有這一類片段。<br>開始生活，讓故事慢慢發生。</div>';
-    else {
-      if (!eventListKey) list.replaceChildren();
-      let cursor = list.firstElementChild;
-      for (const row of events.map(eventRow)) {
-        if (row === cursor) cursor = cursor.nextElementSibling;
-        else list.insertBefore(row, cursor);
-      }
-      while (cursor) {
-        const next = cursor.nextElementSibling;
-        cursor.remove();
-        cursor = next;
-      }
-      if (eventRows.size > 480) {
-        const shown = new Set(events.map(e => e.id));
-        for (const id of eventRows.keys()) if (!shown.has(id)) eventRows.delete(id);
-      }
-    }
-    eventListKey = key;
-  }
-  setText(
-    'events-foot',
-    `截至時段 ${viewed} · 此類共 ${pool.length} 筆，顯示最近 ${events.length} 筆。點選可回查事件。`,
-  );
-}
-function renderNetwork(current) {
-  const points = Object.fromEntries(
-    current.agents.map((a, i) => [
-      a.id,
-      {
-        x: 180 + 114 * Math.cos((i * Math.PI) / 4 - Math.PI / 2),
-        y: 130 + 90 * Math.sin((i * Math.PI) / 4 - Math.PI / 2),
-      },
-    ]),
-  );
-  const dyads = current.metrics.dyads.filter(d => d.allDays.length);
-  setHTML(
-    $('network'),
-    '<circle cx="180" cy="130" r="91" fill="#eef0e5" stroke="#d9e1cb" stroke-dasharray="3 6"/>' +
-      dyads
-        .map(d => {
-          const a = points[d.a],
-            b = points[d.b];
-          return `<g data-pair="${d.key}" role="button" tabindex="0" aria-label="${esc(actor(d.a).name)}與${esc(actor(d.b).name)}，${d.allDays.length}個互動日"><line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="transparent" stroke-width="14"/><line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="${d.qualifies ? '#659259' : '#aebf98'}" stroke-width="${Math.min(4, 1 + d.allDays.length / 2)}" opacity=".7"/></g>`;
-        })
-        .join('') +
-      current.agents
-        .map(
-          a =>
-            `<g data-agent="${a.id}" role="button" tabindex="0" aria-label="查看${esc(a.name)}"><circle cx="${points[a.id].x}" cy="${points[a.id].y}" r="17" fill="${a.color}" stroke="${a.id === selected ? '#d3b86e' : '#fafbf4'}" stroke-width="3"/><text x="${points[a.id].x}" y="${points[a.id].y + 4}" text-anchor="middle" fill="white" font-size="11">${esc(a.name.slice(-1))}</text><text x="${points[a.id].x}" y="${points[a.id].y + 32}" text-anchor="middle" fill="#7f9073" font-size="10">${esc(a.name)}</text></g>`,
-        )
-        .join(''),
-  );
-  setHTML(
-    $('pair-links'),
-    dyads.length
-      ? dyads
-          .sort((a, b) => b.allDays.length - a.allDays.length)
-          .map(
-            d =>
-              `<button data-pair="${d.key}">${esc(actor(d.a).name)} × ${esc(actor(d.b).name)} · ${d.allDays.length} 日</button>`,
-          )
-          .join('')
-      : '<p class="memory-intro">交集會隨著生活逐步出現。</p>',
-  );
-  setHTML(
-    $('network-stats'),
-    `<div><strong>${dyads.length}</strong>有過交集的組合</div><div><strong>${current.metrics.completedCooperations}</strong>已完成合作</div>`,
-  );
-}
-function render({ animate = false } = {}) {
-  const current = frame(),
-    m = current.metrics;
-  setText('day-label', `第 ${String(dayOf(current.tick)).padStart(2, '0')} 天`);
-  const slot = slotOf(current.tick);
-  setText(
-    'phase-label',
-    current.tick
-      ? ['清晨，慢慢醒來', '上午，各自忙碌', '午後，走走聊聊', '傍晚，準備休息'][Math.floor((slot - 1) / 3)] +
-          ` · ${slot}/12`
-      : '清晨，準備出門',
-  );
-  setText(
-    'condition-label',
-    `${current.config.capacity === 8 ? 'A8' : 'B' + current.config.capacity} · 每類 ${current.config.capacity} 件設備`,
-  );
-  setText('timeline-label', `第 ${dayOf(current.tick)} 天 · ${current.tick ? slot : 0} / 12`);
-  setText('timeline-total', `${current.tick} / 120`);
-  $('seek').max = state.tick;
-  $('seek').value = viewed;
-  setText(
-    'view-mode',
-    busy
-      ? '正在處理'
-      : viewed < state.tick
-        ? '歷史回放'
-        : state.tick === 120
-          ? '十日完成'
-          : state.tick
-            ? '最新進度'
-            : '尚未開始',
-  );
-  $('latest').hidden = viewed === state.tick;
-  renderResidents(current);
-  renderAgent(current);
-  renderEvents();
-  renderNetwork(current);
-  renderObject();
-  setText('progress-value', `${current.tick} / 120`);
-  setText('interaction-value', m.interactionDays);
-  setText('y-value', m.final ? percent(m.y) : '—');
-  setText('y-detail', m.final ? `${m.qualifiedLinks} / 28 對 · 工程示範值` : '尚未完成十日，不顯示最終指標');
-  setText('core-value', m.final ? m.persistentCores.length : '—');
-  setText(
-    'research-detail',
-    `設備借用：${m.borrowAttempts} 次合法嘗試、${m.capacityFailures} 次容量失敗（${percent(m.capacityFailureRate)}）。合作完成率：${percent(m.cooperationRate)}，分母 ${m.observedInvitations}，尚未到期 ${m.rightCensoredInvitations}。` +
-      (m.final ? ` 連結門檻 2／3／4 日：${[2, 3, 4].map(n => percent(m.sensitivity[n])).join('／')}。` : '') +
-      ' 全部數值只使用目前回放位置之前的事件。',
-  );
-  controls();
-  scene.render(current, {
-    selected,
-    playing: !!timer,
-    duration: Number($('speed').value) * 0.45,
-    reducedMotion: reduced.matches,
-    animate,
+
+function finishRun() {
+  runInBackground('finish', { state: world }, result => {
+    replaceRun(result.state, [...frames, ...result.frames], result.state.tick);
+    render();
+    toast('十日已完成。拖動時間軸，或按「從頭回放」觀看保存的生活。');
   });
 }
-function evidenceCard(e) {
-  return `<article class="evidence-card"><small>D${dayOf(e.tick)} · 時段 ${slotOf(e.tick)} · ${kinds[e.type] || esc(e.type)} · ${e.id}</small><p>${esc(e.text)}</p><div class="evidence-meta">${e.participants.map(id => esc(actor(id)?.name ?? id)).join('、')}${e.zone ? ' · ' + ZONES[e.zone].name : ''}${e.failure_reason || e.reason ? ' · ' + esc(e.failure_reason || e.reason) : ''}</div><button data-jump="${e.tick}">回到這個時段 →</button></article>`;
+
+function compareConditions() {
+  const lowCapacity = world.config.capacity === 3 ? 3 : 2;
+  runInBackground('compare', { seed: world.config.seed, capacity: lowCapacity }, ({ pair }) => {
+    $('pair-panel').hidden = false;
+    $('pair-panel').innerHTML = comparisonHTML(pair);
+    toast('配對示範完成。數值來自離線策略，不是正式研究結果。');
+  });
 }
-function showEvent(id) {
-  const e = pastEvents().find(e => e.id === id);
-  if (!e) return;
+
+function exportCurrentRun() {
+  stop();
+  const blob = new Blob([JSON.stringify(exportRun(world))], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `ai-town-demo-${world.config.seed}-capacity${world.config.capacity}-tick${world.tick}.json`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+  toast(`已匯出全部 ${world.tick} 個已執行時段，包含完整提議與記憶紀錄。`);
+}
+
+async function importRun(file) {
+  if (file.size > MAX_IMPORT_BYTES) {
+    toast('檔案超過 20 MB 上限。');
+    return;
+  }
+  let data;
+  try {
+    data = JSON.parse(await file.text());
+  } catch {
+    toast('無法讀取 JSON，請選擇本 demo 匯出的紀錄。');
+    return;
+  }
+  runInBackground('import', { data }, result => {
+    replaceRun(result.state, result.frames, 0);
+    $('pair-panel').hidden = true;
+    render();
+    toast('回放驗證通過。按「播放回放」從第一天開始觀看。');
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Dialogs and page modes
+
+function showEventEvidence(id) {
+  const event = pastEvents().find(e => e.id === id);
+  if (!event) return;
   stop();
   $('evidence-title').textContent = '這段日常的來源';
-  const related = e.sourceId && pastEvents().find(x => x.id === e.sourceId);
-  $('evidence-body').innerHTML =
-    evidenceCard(e) +
-    (related ? '<p class="evidence-note">對應的互動事件</p>' + evidenceCard(related) : '') +
-    `<p class="evidence-note">場次 ${state.config.seed} · ${state.config.capacity === 8 ? 'A8' : 'B' + state.config.capacity}。這是已保存的世界事件，回放不會重新產生對話。</p>`;
+  const related = event.sourceId && pastEvents().find(e => e.id === event.sourceId);
+  $('evidence-body').innerHTML = eventEvidenceHTML(event, related, world.config, resident);
   $('evidence-dialog').showModal();
 }
-function showPair(key) {
+
+function showPairEvidence(key) {
   const dyad = frame().metrics.dyads.find(d => d.key === key);
   if (!dyad) return;
   stop();
-  $('evidence-title').textContent = `${actor(dyad.a).name}與${actor(dyad.b).name}的交集`;
-  const interactions = pastEvents().filter(e => e.type === 'interaction' && e.pair === key);
-  // Resolve source events from the full prefix; viewFrame intentionally keeps only 180 recent events.
-  const sources = interactions.map(e => pastEvents().find(s => s.id === e.sourceId) ?? e);
-  $('evidence-body').innerHTML =
-    `<p class="evidence-note">共 ${dyad.allDays.length} 個互動日（${dyad.allDays.map(d => 'D' + d).join('、') || '尚無'}）。以下列出全部 ${sources.length} 次有效回覆或合作證據；同一天最多計一個互動日。這些接觸不等於友誼。</p>` +
-    sources.slice().reverse().map(evidenceCard).join('');
+  $('evidence-title').textContent = `${resident(dyad.a).name}與${resident(dyad.b).name}的交集`;
+  // Sources come from the full log: view frames deliberately keep only recent events.
+  const sources = pastEvents()
+    .filter(e => e.type === 'interaction' && e.pair === key)
+    .map(e => pastEvents().find(source => source.id === e.sourceId) ?? e);
+  $('evidence-body').innerHTML = pairEvidenceHTML(dyad, sources, resident);
   $('evidence-dialog').showModal();
 }
-function mode(research) {
-  $('research').hidden = !research;
-  for (const name of ['life', 'research']) {
-    const active = research === (name === 'research');
-    $('mode-' + name).classList.toggle('active', active);
-    $('mode-' + name).setAttribute('aria-pressed', String(active));
-  }
-  if (research)
-    $('research').scrollIntoView({ behavior: reduced.matches ? 'instant' : 'smooth', block: 'start' });
-  else $('town-section').scrollIntoView({ behavior: reduced.matches ? 'instant' : 'smooth', block: 'start' });
-}
-$('play').addEventListener('click', start);
-$('step').addEventListener('click', () => {
+
+function openSettings() {
   stop();
-  advance();
-});
-$('latest').addEventListener('click', () => {
-  stop();
-  viewed = state.tick;
-  render();
-});
-$('speed').addEventListener('change', () => {
-  if (timer) {
-    clearInterval(timer);
-    timer = setInterval(advance, Number($('speed').value));
-  }
-  render({ animate: false });
-});
-$('seek').addEventListener('input', () => {
-  stop();
-  viewed = Number($('seek').value);
-  render();
-});
-$('event-filter').addEventListener('change', renderEvents);
-$('mode-life').addEventListener('click', () => mode(false));
-$('mode-research').addEventListener('click', () => mode(true));
-for (const tab of ['now', 'memory', 'connections'])
-  $('tab-' + tab).addEventListener('click', () => {
-    activeTab = tab;
-    for (const name of ['now', 'memory', 'connections']) {
-      const active = name === tab;
-      $('tab-' + name).classList.toggle('active', active);
-      $('tab-' + name).setAttribute('aria-selected', String(active));
-    }
-    $('agent-detail').setAttribute('aria-labelledby', 'tab-' + tab);
-    renderAgent(frame());
-  });
-$('settings-open').addEventListener('click', () => {
-  stop();
-  $('seed').value = state.config.seed;
-  $('condition').value = state.config.capacity;
+  $('seed').value = world.config.seed;
+  $('condition').value = world.config.capacity;
   $('settings-error').textContent = '';
   $('settings-dialog').showModal();
-});
-$('settings-form').addEventListener('submit', event => {
+}
+
+function createNewTown(event) {
   event.preventDefault();
   if (busy) return;
   try {
     if (!$('seed').value.trim()) throw new Error('請輸入場次種子。');
     const fresh = createWorld({ seed: Number($('seed').value), capacity: Number($('condition').value) });
     stop();
-    state = fresh;
-    frames = [viewFrame(state)];
-    viewed = 0;
+    replaceRun(fresh, [viewFrame(fresh)], 0);
     $('pair-panel').hidden = true;
     $('settings-dialog').close();
     render();
@@ -646,16 +480,70 @@ $('settings-form').addEventListener('submit', event => {
   } catch (error) {
     $('settings-error').textContent = error.message;
   }
-});
+}
+
+function showResearch(research) {
+  $('research').hidden = !research;
+  for (const name of ['life', 'research']) {
+    const active = research === (name === 'research');
+    $('mode-' + name).classList.toggle('active', active);
+    $('mode-' + name).setAttribute('aria-pressed', String(active));
+  }
+  $(research ? 'research' : 'town-section').scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
+}
+
+function selectTab(tab) {
+  activeTab = tab;
+  for (const name of TABS) {
+    const active = name === tab;
+    $('tab-' + name).classList.toggle('active', active);
+    $('tab-' + name).setAttribute('aria-selected', String(active));
+  }
+  $('agent-detail').setAttribute('aria-labelledby', 'tab-' + tab);
+  renderInspector();
+}
+
 function expandTown(expanded) {
   document.querySelector('.world-panel').classList.toggle('expanded', expanded);
   document.body.classList.toggle('town-expanded', expanded);
   $('fullscreen').setAttribute('aria-pressed', String(expanded));
   $('fullscreen').innerHTML = expanded ? '↙ <span>收回小鎮</span>' : '⛶ <span>放大小鎮</span>';
 }
-$('fullscreen').addEventListener('click', () =>
-  expandTown(!document.body.classList.contains('town-expanded')),
-);
+
+// ---------------------------------------------------------------------------
+// Event wiring
+
+$('play').addEventListener('click', togglePlay);
+$('step').addEventListener('click', () => {
+  stop();
+  advance();
+});
+$('latest').addEventListener('click', () => jumpTo(world.tick));
+$('seek').addEventListener('input', () => jumpTo(Number($('seek').value)));
+$('speed').addEventListener('change', () => {
+  if (playTimer) {
+    clearInterval(playTimer);
+    playTimer = setInterval(advance, playbackInterval());
+  }
+  render({ animate: false });
+});
+$('event-filter').addEventListener('change', () => renderJournal());
+$('mode-life').addEventListener('click', () => showResearch(false));
+$('mode-research').addEventListener('click', () => showResearch(true));
+for (const tab of TABS) $('tab-' + tab).addEventListener('click', () => selectTab(tab));
+$('settings-open').addEventListener('click', openSettings);
+$('settings-form').addEventListener('submit', createNewTown);
+$('finish').addEventListener('click', finishRun);
+$('compare').addEventListener('click', compareConditions);
+$('export').addEventListener('click', exportCurrentRun);
+$('import').addEventListener('click', () => $('file').click());
+$('file').addEventListener('change', event => {
+  const file = event.target.files[0];
+  event.target.value = '';
+  if (file) importRun(file);
+});
+
+$('fullscreen').addEventListener('click', () => expandTown(!document.body.classList.contains('town-expanded')));
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape') expandTown(false);
 });
@@ -666,12 +554,13 @@ $('camera-follow').addEventListener('click', () => scene.setFollow(!cameraFollow
 $('explore-toggle').addEventListener('click', () => scene.setExplore(!exploring));
 $('object-close').addEventListener('click', () => {
   inspectedObject = null;
-  renderObject();
+  renderInspectedObject();
   document.querySelector('#town-stage canvas')?.focus();
 });
 for (const button of document.querySelectorAll('[data-zone]'))
   button.addEventListener('click', () => scene.focusZone(button.dataset.zone));
 $('town-minimap').addEventListener('click', event => {
+  // A keyboard activation (no click count) resets the view instead of panning.
   if (!event.detail) {
     scene.resetCamera();
     return;
@@ -682,104 +571,45 @@ $('town-minimap').addEventListener('click', event => {
     ((event.clientY - rect.top) / rect.height) * WORLD_SIZE.height,
   );
 });
-$('finish').addEventListener('click', () =>
-  background('finish', { state }, result => {
-    state = result.state;
-    frames.push(...result.frames);
-    viewed = state.tick;
-    render();
-    toast('十日已完成。拖動時間軸，或按「從頭回放」觀看保存的生活。');
-  }),
-);
-$('compare').addEventListener('click', () =>
-  background(
-    'compare',
-    { seed: state.config.seed, capacity: state.config.capacity === 3 ? 3 : 2 },
-    ({ pair }) => {
-      $('pair-panel').hidden = false;
-      $('pair-panel').innerHTML =
-        `<h3>同種子的兩座小鎮 <span class="mini-label">SEED ${pair.seed}</span></h3><table><thead><tr><th>設備條件</th><th>主要指標 Y</th><th>容量失敗／嘗試</th><th>完成合作</th></tr></thead><tbody>${[
-          ['A8', pair.a],
-          ['B' + pair.lowCapacity, pair.b],
-        ]
-          .map(
-            ([name, m]) =>
-              `<tr><td>${name}</td><td>${percent(m.y)}</td><td>${m.capacityFailures} / ${m.borrowAttempts}</td><td>${m.completedCooperations}</td></tr>`,
-          )
-          .join(
-            '',
-          )}</tbody></table><p class="delta">B − A = ${pair.deltaPercentagePoints > 0 ? '+' : ''}${pair.deltaPercentagePoints.toFixed(2)} 個百分點</p><p>${esc(pair.note)} 目前觀看的場次保留。</p>`;
-      toast('配對示範完成。數值來自離線策略，不是正式研究結果。');
-    },
-  ),
-);
-$('export').addEventListener('click', () => {
-  stop();
-  const blob = new Blob([JSON.stringify(exportRun(state))], { type: 'application/json' }),
-    url = URL.createObjectURL(blob),
-    link = document.createElement('a');
-  link.href = url;
-  link.download = `ai-town-demo-${state.config.seed}-capacity${state.config.capacity}-tick${state.tick}.json`;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1500);
-  toast(`已匯出全部 ${state.tick} 個已執行時段，包含完整提議與記憶紀錄。`);
-});
-$('import').addEventListener('click', () => $('file').click());
-$('file').addEventListener('change', async event => {
-  const file = event.target.files[0];
-  event.target.value = '';
-  if (!file) return;
-  if (file.size > 20 * 1024 * 1024) {
-    toast('檔案超過 20 MB 上限。');
-    return;
-  }
-  try {
-    const data = JSON.parse(await file.text());
-    background('import', { data }, result => {
-      state = result.state;
-      frames = result.frames;
-      viewed = 0;
-      $('pair-panel').hidden = true;
-      render();
-      toast('回放驗證通過。按「播放回放」從第一天開始觀看。');
-    });
-  } catch {
-    toast('無法讀取 JSON，請選擇本 demo 匯出的紀錄。');
-  }
-});
+
+// Generated markup carries its action in data attributes.
 document.addEventListener('click', event => {
   const target = event.target.closest('[data-agent],[data-event],[data-pair],[data-jump],[data-close]');
   if (!target) return;
-  if (target.dataset.close) $(target.dataset.close).close();
-  else if (target.dataset.agent) selectAgent(target.dataset.agent);
-  else if (target.dataset.event) showEvent(target.dataset.event);
-  else if (target.dataset.pair) showPair(target.dataset.pair);
-  else if (target.dataset.jump) {
-    stop();
-    viewed = Number(target.dataset.jump);
+  const { close, agent, event: eventId, pair, jump } = target.dataset;
+  if (close) $(close).close();
+  else if (agent) selectResident(agent);
+  else if (eventId) showEventEvidence(eventId);
+  else if (pair) showPairEvidence(pair);
+  else if (jump) {
     $('evidence-dialog').close();
-    render();
-    $('town-section').scrollIntoView({ behavior: reduced.matches ? 'instant' : 'smooth' });
+    jumpTo(Number(jump));
+    $('town-section').scrollIntoView({ behavior: scrollBehavior() });
   }
 });
+// SVG nodes and links act as buttons from the keyboard.
 $('network').addEventListener('keydown', event => {
-  if (['Enter', ' '].includes(event.key) && event.target.matches('[role="button"]')) {
-    event.preventDefault();
-    event.target.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-  }
+  if (!['Enter', ' '].includes(event.key) || !event.target.matches('[role="button"]')) return;
+  event.preventDefault();
+  event.target.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 });
 document.querySelector('.inspector-tabs').addEventListener('keydown', event => {
+  const moves = { ArrowRight: 1, ArrowLeft: TABS.length - 1 };
   if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(event.key)) return;
   event.preventDefault();
-  const tabs = ['now', 'memory', 'connections'];
-  let i = tabs.indexOf(activeTab);
-  i = event.key === 'Home' ? 0 : event.key === 'End' ? 2 : (i + (event.key === 'ArrowRight' ? 1 : 2)) % 3;
-  $('tab-' + tabs[i]).click();
-  $('tab-' + tabs[i]).focus();
+  const index =
+    event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? TABS.length - 1
+        : (TABS.indexOf(activeTab) + moves[event.key]) % TABS.length;
+  $('tab-' + TABS[index]).click();
+  $('tab-' + TABS[index]).focus();
 });
 window.addEventListener('pagehide', () => {
   stop();
   worker?.terminate();
   scene.destroy();
 });
+
 render();
