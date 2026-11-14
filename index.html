@@ -3,7 +3,8 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="theme-color" content="#285649" />
+    <meta name="theme-color" content="#1f4a3e" />
+    <meta name="color-scheme" content="light dark" />
     <meta
       name="description"
       content="觀看八位居民在小鎮生活、交談與合作。依研究計畫 V5 製作的離線 HTML 展示。"
@@ -14,58 +15,174 @@
     <script src="./vendor/phaser.js"></script>
     <script type="module" src="./app.js"></script>
   </head>
-  <body>
-    <!-- Top bar: page mode (town / research) and run settings. -->
-    <header class="topbar">
-      <a class="brand" href="#town-section"
-        ><span class="brand-icon" aria-hidden="true">田</span
-        ><span>AI 小鎮<small>A PLACE TO BELONG</small></span></a
-      >
-      <nav class="mode-switch" aria-label="觀看模式">
-        <button id="mode-life" class="active" aria-pressed="true">小鎮空間</button
-        ><button id="mode-research" aria-pressed="false">研究觀察</button>
+  <body data-view="town">
+    <!-- Icons, referenced with <svg><use href="#i-…"/></svg>. Drawn for this project. -->
+    <svg aria-hidden="true" class="icon-sprite" aria-hidden="true">
+      <symbol id="i-play" viewBox="0 0 24 24">
+        <path d="M8 5.5v13l10.5-6.5z" fill="currentColor" stroke="none" />
+      </symbol>
+      <symbol id="i-pause" viewBox="0 0 24 24">
+        <rect x="6.5" y="5" width="4" height="14" rx="1" fill="currentColor" stroke="none" />
+        <rect x="13.5" y="5" width="4" height="14" rx="1" fill="currentColor" stroke="none" />
+      </symbol>
+      <symbol id="i-replay" viewBox="0 0 24 24">
+        <path d="M4 12a8 8 0 1 0 2.6-5.9L4 8.5" />
+        <path d="M4 4v4.5h4.5" />
+      </symbol>
+      <symbol id="i-step" viewBox="0 0 24 24">
+        <path d="M6 6v12l9-6z" fill="currentColor" stroke="none" />
+        <path d="M18 6v12" />
+      </symbol>
+      <symbol id="i-latest" viewBox="0 0 24 24"><path d="M6 6l6 6-6 6M13 6l6 6-6 6" /></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></symbol>
+      <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14" /></symbol>
+      <symbol id="i-fit" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></symbol>
+      <symbol id="i-target" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="6.5" />
+        <circle cx="12" cy="12" r="2" fill="currentColor" stroke="none" />
+        <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3" />
+      </symbol>
+      <symbol id="i-expand" viewBox="0 0 24 24">
+        <path d="M14 4h6v6M10 20H4v-6M20 4l-6.5 6.5M4 20l6.5-6.5" />
+      </symbol>
+      <symbol id="i-collapse" viewBox="0 0 24 24">
+        <path d="M4 14h6v6M20 10h-6V4M10 14l-6.5 6.5M14 10l6.5-6.5" />
+      </symbol>
+      <symbol id="i-pin" viewBox="0 0 24 24">
+        <path d="M12 21s-6.5-5.8-6.5-10.5a6.5 6.5 0 0 1 13 0C18.5 15.2 12 21 12 21z" />
+        <circle cx="12" cy="10.5" r="2.3" />
+      </symbol>
+      <symbol id="i-settings" viewBox="0 0 24 24">
+        <path d="M4 7h10M18 7h2M4 17h2M10 17h10" />
+        <circle cx="16" cy="7" r="2.2" />
+        <circle cx="8" cy="17" r="2.2" />
+      </symbol>
+      <symbol id="i-close" viewBox="0 0 24 24"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11" /></symbol>
+      <symbol id="i-home" viewBox="0 0 24 24">
+        <path d="M4 11l8-6.5 8 6.5" />
+        <path d="M6 9.5V20h12V9.5M10 20v-5h4v5" />
+      </symbol>
+      <symbol id="i-tools" viewBox="0 0 24 24">
+        <path d="M14.5 6.5a4 4 0 0 0 5 5l-8 8a2.1 2.1 0 0 1-3-3l8-8a4 4 0 0 0-2-2z" />
+      </symbol>
+      <symbol id="i-cup" viewBox="0 0 24 24">
+        <path d="M5 9h11v5a5 5 0 0 1-5 5h-1a5 5 0 0 1-5-5z" />
+        <path d="M16 11h1.5a2.5 2.5 0 0 1 0 5H16M9 3.5v2.5M12.5 3.5v2.5" />
+      </symbol>
+      <symbol id="i-camera" viewBox="0 0 24 24">
+        <path d="M4 8h3.5l2-3h5l2 3H20v11H4z" />
+        <circle cx="12" cy="13" r="3.3" />
+      </symbol>
+      <symbol id="i-forward" viewBox="0 0 24 24">
+        <path d="M4 6v12l8-6zM12 6v12l8-6z" fill="currentColor" stroke="none" />
+      </symbol>
+      <symbol id="i-compare" viewBox="0 0 24 24">
+        <path d="M5 20V11M10 20V5M15 20v-6M20 20V9M3 20h18" />
+      </symbol>
+      <symbol id="i-download" viewBox="0 0 24 24">
+        <path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 20h14" />
+      </symbol>
+      <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 20V9M7.5 13.5L12 9l4.5 4.5M5 4h14" /></symbol>
+      <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M7 17L17 7M9 7h8v8" /></symbol>
+    </svg>
+
+    <a class="skip-link" href="#town-stage">跳到小鎮畫面</a>
+
+    <!-- App bar: where we are in the run, the view switch and run settings. -->
+    <header class="app-bar">
+      <a class="brand" href="#top" aria-label="AI 小鎮，回到頁首">
+        <span class="brand-mark" aria-hidden="true">田</span>
+        <span class="brand-text"><strong>AI 小鎮</strong><small>A place to belong</small></span>
+      </a>
+      <div class="clock">
+        <span class="live-dot" id="playing-dot" aria-hidden="true"></span>
+        <strong id="day-label">第 01 天</strong>
+        <span id="phase-label">清晨，準備出門</span>
+      </div>
+      <nav class="view-switch" aria-label="觀看模式">
+        <button id="mode-life" class="active" aria-pressed="true">小鎮</button>
+        <button id="mode-research" aria-pressed="false">研究觀察</button>
       </nav>
-      <button id="settings-open" class="quiet settings-button">
-        <span aria-hidden="true">⚙</span> 場次設定
-      </button>
+      <div class="run-meta">
+        <span class="pill" id="condition-label" title="目前場次的設備條件">B2 · 每類 2 件設備</span>
+        <button id="settings-open" class="button ghost">
+          <svg aria-hidden="true" class="icon"><use href="#i-settings" /></svg><span>場次設定</span>
+        </button>
+      </div>
     </header>
-    <main>
-      <!-- Intro. -->
-      <section class="intro">
-        <div>
-          <p class="eyebrow"><span></span> LIVE IN THE LITTLE THINGS</p>
-          <h1>走進小鎮，<span>生活正在發生。</span></h1>
-          <p class="intro-copy">推開門、找個位子，與八位居民共度一天。</p>
-        </div>
-        <div class="source-note">
-          <i></i>
-          <div><strong>離線生活示範</strong><small>規則型角色 · 非 LLM 實驗結果</small></div>
-        </div>
-      </section>
-      <!-- Town: the Phaser stage with its controls, the resident strip and the inspector. Panels are filled by app.js. -->
-      <section class="town-layout" id="town-section" aria-label="小鎮觀察室">
-        <div class="world-column">
-          <div class="world-panel">
-            <div class="world-heading">
-              <div>
-                <span class="live-dot" id="playing-dot"></span><strong id="day-label">第 01 天</strong
-                ><span id="phase-label">清晨，準備出門</span>
+    <p class="notice"><strong>離線生活示範</strong>規則型角色與合成對話，不呼叫 LLM，不是正式研究結果。</p>
+
+    <main id="top">
+      <!-- Town view: the stage with its controls, the residents and the inspector. Panels are filled by app.js. -->
+      <section class="town-view" id="town-section" aria-label="小鎮觀察室">
+        <div class="stage-card world-panel">
+          <div class="stage">
+            <div
+              id="town-stage"
+              aria-label="小鎮互動地圖，點選居民觀察。探訪模式可使用方向鍵或點地面行走。"
+            ></div>
+            <div id="scene-status" class="scene-status" role="status">正在準備小鎮…</div>
+
+            <div class="stage-bar stage-top">
+              <div class="district-nav" role="group" aria-label="前往街區">
+                <button class="chip" data-zone="home" disabled>
+                  <svg aria-hidden="true" class="icon"><use href="#i-home" /></svg>共享住宅
+                </button>
+                <button class="chip" data-zone="workshop" disabled>
+                  <svg aria-hidden="true" class="icon"><use href="#i-tools" /></svg>創作工坊
+                </button>
+                <button class="chip" data-zone="plaza" disabled>
+                  <svg aria-hidden="true" class="icon"><use href="#i-cup" /></svg>花園咖啡
+                </button>
+                <button class="chip" data-zone="studio" disabled>
+                  <svg aria-hidden="true" class="icon"><use href="#i-camera" /></svg>攝影藝廊
+                </button>
               </div>
-              <span class="condition-pill" id="condition-label">B2 · 每類 2 件設備</span>
+              <div class="camera-tools" role="group" aria-label="鏡頭控制">
+                <div class="zoom">
+                  <button id="zoom-out" class="tool" aria-label="縮小地圖" title="縮小地圖" disabled>
+                    <svg aria-hidden="true" class="icon"><use href="#i-minus" /></svg>
+                  </button>
+                  <output id="zoom-level" aria-live="polite">165%</output>
+                  <button id="zoom-in" class="tool" aria-label="放大地圖" title="放大地圖" disabled>
+                    <svg aria-hidden="true" class="icon"><use href="#i-plus" /></svg>
+                  </button>
+                </div>
+                <button id="camera-reset" class="tool" title="全鎮視角" disabled>
+                  <svg aria-hidden="true" class="icon"><use href="#i-fit" /></svg
+                  ><span class="tool-label">全鎮</span>
+                </button>
+                <button id="camera-follow" class="tool" aria-pressed="false" title="跟隨選取的居民" disabled>
+                  <svg aria-hidden="true" class="icon"><use href="#i-target" /></svg
+                  ><span class="tool-label button-label">跟隨居民</span>
+                </button>
+                <button id="fullscreen" class="tool" aria-pressed="false" title="放大小鎮畫面">
+                  <svg aria-hidden="true" class="icon icon-expand"><use href="#i-expand" /></svg
+                  ><svg aria-hidden="true" class="icon icon-collapse"><use href="#i-collapse" /></svg
+                  ><span class="tool-label button-label">放大小鎮</span>
+                </button>
+              </div>
             </div>
-            <div class="district-nav" aria-label="探索街區">
-              <span class="district-caption">空間導覽</span
-              ><button data-zone="home" disabled>⌂ 共享住宅</button
-              ><button data-zone="workshop" disabled>⚒ 創作工坊</button
-              ><button data-zone="plaza" disabled>☕ 花園咖啡</button
-              ><button data-zone="studio" disabled>▧ 攝影藝廊</button>
+
+            <div id="explore-status" class="explore-status" hidden>
+              <span class="visitor-dot" aria-hidden="true"></span>
+              <strong id="visitor-location">探訪小鎮</strong>
+              <small id="visitor-hint">點地面行走 · WASD／方向鍵 · E 查看家具</small>
             </div>
-            <div class="scene-wrap" id="scene-wrap">
-              <div
-                id="town-stage"
-                aria-label="小鎮互動地圖，點選居民觀察。探訪模式可使用方向鍵或點地面行走。"
-              ></div>
-              <div id="scene-status" class="scene-status" role="status">正在準備小鎮…</div>
+
+            <!-- Furniture card, shown when a piece of furniture is inspected. -->
+            <aside id="object-card" class="object-card" hidden aria-label="空間物件資訊">
+              <button id="object-close" class="tool" aria-label="關閉物件資訊">
+                <svg aria-hidden="true" class="icon"><use href="#i-close" /></svg>
+              </button>
+              <span class="kicker" id="object-zone">空間裡的小事</span>
+              <h3 id="object-name"></h3>
+              <p id="object-description"></p>
+              <p id="object-occupants" class="object-occupants"></p>
+            </aside>
+
+            <div class="stage-bar stage-bottom">
+              <span id="scene-hint" class="scene-hint">點居民看日常 · 點家具看用途 · 拖曳移動視角</span>
               <button
                 id="town-minimap"
                 class="town-minimap"
@@ -73,160 +190,123 @@
                 title="點選縮圖位置移動鏡頭"
                 disabled
               >
-                <img id="minimap-image" alt="" draggable="false" /><span id="minimap-viewport"></span
-                ><small>小鎮全景</small>
+                <img id="minimap-image" alt="" draggable="false" /><span id="minimap-viewport"></span>
               </button>
-              <div id="explore-status" class="explore-status" hidden>
-                <span class="visitor-dot"></span><strong id="visitor-location">探訪小鎮</strong
-                ><small id="visitor-hint">點地面行走 · WASD／方向鍵 · E 查看家具</small>
-              </div>
-              <!-- Furniture card, shown when a piece of furniture is inspected. -->
-              <aside id="object-card" class="object-card" hidden aria-label="空間物件資訊">
-                <button id="object-close" aria-label="關閉物件資訊">×</button
-                ><span class="object-kicker" id="object-zone">空間裡的小事</span>
-                <h3 id="object-name"></h3>
-                <p id="object-description"></p>
-                <div id="object-occupants"></div>
-              </aside>
-              <div class="scene-caption">
-                <span id="scene-hint">點居民看日常 · 點家具看用途 · 拖曳移動視角</span
-                ><button id="fullscreen" title="放大小鎮畫面" aria-pressed="false">
-                  ⛶ <span>放大小鎮</span>
-                </button>
-              </div>
             </div>
-            <!-- Camera and visitor controls. -->
-            <div class="camera-toolbar" aria-label="鏡頭控制">
-              <button id="explore-toggle" class="explore-toggle" aria-pressed="false" disabled>
-                ↗ 探訪小鎮
+          </div>
+
+          <!-- Playback dock: play, step, timeline, speed and the visitor. -->
+          <div class="dock" role="group" aria-label="播放控制">
+            <div class="dock-buttons">
+              <button id="play" class="button primary play-button" data-state="start">
+                <svg aria-hidden="true" class="icon icon-play"><use href="#i-play" /></svg
+                ><svg aria-hidden="true" class="icon icon-pause"><use href="#i-pause" /></svg
+                ><svg aria-hidden="true" class="icon icon-replay"><use href="#i-replay" /></svg
+                ><span class="button-label">開始生活</span>
               </button>
-              <div class="camera-zoom">
-                <button id="zoom-out" aria-label="縮小地圖" title="縮小地圖" disabled>−</button
-                ><output id="zoom-level" aria-live="polite">165%</output
-                ><button id="zoom-in" aria-label="放大地圖" title="放大地圖" disabled>＋</button>
-              </div>
-              <button id="camera-reset" disabled>全鎮視角</button
-              ><button id="camera-follow" aria-pressed="false" disabled>◎ 跟隨居民</button>
-            </div>
-            <!-- Playback: play / step / speed, then the timeline. -->
-            <div class="transport">
-              <button id="play" class="primary">▶ 開始生活</button
-              ><button id="step" class="quiet">下一步 →</button
-              ><button id="latest" class="quiet" hidden>回到最新</button>
-              <div class="transport-right">
-                <span id="view-mode">尚未開始</span
-                ><select id="speed" aria-label="播放速度">
-                  <option value="3600">1× 生活步調</option>
-                  <option value="1800">2×</option>
-                  <option value="900">4×</option>
-                </select>
-              </div>
+              <button id="step" class="button" title="前進一個時段">
+                <svg aria-hidden="true" class="icon"><use href="#i-step" /></svg><span>下一步</span>
+              </button>
+              <button id="latest" class="button ghost" hidden>
+                <svg aria-hidden="true" class="icon"><use href="#i-latest" /></svg><span>回到最新</span>
+              </button>
             </div>
             <div class="timeline">
-              <span id="timeline-label">第 1 天 · 0 / 12</span
-              ><input id="seek" type="range" min="0" max="0" value="0" aria-label="回放時段" /><span
-                id="timeline-total"
-                >0 / 120</span
-              >
+              <span id="timeline-label" class="timeline-label">第 1 天 · 0 / 12</span>
+              <input id="seek" type="range" min="0" max="0" value="0" aria-label="回放時段" />
+              <span id="timeline-total" class="timeline-total">0 / 120</span>
+            </div>
+            <div class="dock-options">
+              <span id="view-mode" class="status-tag">尚未開始</span>
+              <select id="speed" class="select" aria-label="播放速度">
+                <option value="3600">1× 生活步調</option>
+                <option value="1800">2×</option>
+                <option value="900">4×</option>
+              </select>
+              <button id="explore-toggle" class="button explore-toggle" aria-pressed="false" disabled>
+                <svg aria-hidden="true" class="icon"><use href="#i-pin" /></svg
+                ><span class="button-label">探訪小鎮</span>
+              </button>
             </div>
           </div>
-          <!-- Residents (filled by app.js). -->
-          <div class="residents-heading">
-            <h2>居民 <span>8</span></h2>
-            <span>生活中</span>
-          </div>
-          <div class="resident-strip" id="residents" aria-label="選擇居民"></div>
         </div>
+
+        <!-- Residents (filled by app.js). -->
+        <section class="roster" aria-labelledby="roster-title">
+          <div class="roster-heading">
+            <h2 id="roster-title">居民 <span class="count">8</span></h2>
+            <span>點選人物查看此刻、記憶與互動</span>
+          </div>
+          <div class="roster-list" id="residents" aria-label="選擇居民"></div>
+        </section>
+
         <!-- Inspector: the selected resident now, their memories and their interactions. -->
         <aside class="inspector" aria-label="居民觀察">
           <div class="inspector-heading">
-            <span>正在觀察</span><span class="mini-label" id="agent-zone">住宅區</span>
+            <span class="kicker">正在觀察</span><span class="pill subtle" id="agent-zone">住宅區</span>
           </div>
           <div id="agent-profile"></div>
-          <div class="inspector-tabs" role="tablist" aria-label="居民資料">
+          <div class="tabs inspector-tabs" role="tablist" aria-label="居民資料">
             <button id="tab-now" role="tab" aria-selected="true" aria-controls="agent-detail" class="active">
-              此刻</button
-            ><button id="tab-memory" role="tab" aria-selected="false" aria-controls="agent-detail">
-              記憶</button
-            ><button id="tab-connections" role="tab" aria-selected="false" aria-controls="agent-detail">
+              此刻
+            </button>
+            <button id="tab-memory" role="tab" aria-selected="false" aria-controls="agent-detail">
+              記憶
+            </button>
+            <button id="tab-connections" role="tab" aria-selected="false" aria-controls="agent-detail">
               互動
             </button>
           </div>
-          <div id="agent-detail" role="tabpanel" aria-labelledby="tab-now"></div>
-          <div class="inspector-foot">
-            角色自行選擇行動，世界規則判定結果。<br />不預設好友，也不預定小團體。
-          </div>
+          <div id="agent-detail" class="inspector-detail" role="tabpanel" aria-labelledby="tab-now"></div>
+          <p class="inspector-foot">角色自行選擇行動，世界規則判定結果。不預設好友，也不預定小團體。</p>
         </aside>
       </section>
-      <!-- Town journal and interaction network. -->
-      <section class="stories-layout" id="stories">
-        <div class="story-panel">
-          <div class="section-heading">
-            <div>
-              <p class="eyebrow">TOWN JOURNAL</p>
-              <h2>小鎮記事</h2>
-            </div>
-            <select id="event-filter" aria-label="記事類別">
-              <option value="life">生活片段</option>
-              <option value="social">對話與合作</option>
-              <option value="equipment">設備借還</option>
-              <option value="failed">未成立的行動</option>
-              <option value="all">全部事件</option>
-            </select>
-          </div>
-          <p class="section-copy">每一段對話與每一次相遇，都能回到當時。</p>
-          <div id="events" class="event-list"></div>
-          <p class="list-foot" id="events-foot">開始生活後，這裡會留下小鎮的片段。</p>
-        </div>
-        <div class="network-panel">
-          <div class="section-heading">
-            <div>
-              <p class="eyebrow">CROSSING PATHS</p>
-              <h2>誰與誰有了交集</h2>
-            </div>
-            <span class="mini-label">累計接觸</span>
-          </div>
-          <svg id="network" viewBox="0 0 360 270" role="img" aria-label="截至所選時段的累計互動網絡"></svg>
-          <p class="network-note">連線來自有效回覆或完成合作。<br />點選一組居民，查看交集的來源。</p>
-          <div id="pair-links" class="pair-links"></div>
-          <div id="network-stats" class="network-stats"></div>
-        </div>
-      </section>
-      <!-- Research observation: V5 metrics, background jobs and the rule summary. -->
-      <section class="research-panel" id="research" hidden>
-        <div class="section-heading">
+
+      <!-- Research view: V5 metrics, background jobs and the rule summary. -->
+      <section class="research-view" id="research" hidden aria-labelledby="research-title">
+        <div class="research-heading">
           <div>
-            <p class="eyebrow">RESEARCH OBSERVATION / V5</p>
-            <h2>讓日常可以被觀察，也可以被驗證。</h2>
+            <p class="kicker">研究觀察 · V5</p>
+            <h2 id="research-title">讓日常可以被觀察，也可以被驗證。</h2>
           </div>
-          <span class="mini-label">工程示範資料</span>
+          <span class="pill warn">工程示範資料</span>
         </div>
         <div class="metrics">
-          <div>
+          <article class="metric">
             <span>模擬進度</span><strong id="progress-value">0 / 120</strong
             ><small>10 日，每日 12 時段</small>
-          </div>
-          <div>
+          </article>
+          <article class="metric">
             <span>有效互動日</span><strong id="interaction-value">0</strong
             ><small>每對居民每日最多計一次</small>
-          </div>
-          <div>
+          </article>
+          <article class="metric accent">
             <span>持續雙向連結密度 Y</span><strong id="y-value">—</strong
             ><small id="y-detail">完成十日後顯示</small>
-          </div>
-          <div>
+          </article>
+          <article class="metric">
             <span>跨窗持續三人核心</span><strong id="core-value">—</strong
             ><small>固定三人組，非三人共同活動</small>
-          </div>
+          </article>
         </div>
+        <p id="research-detail" class="research-detail"></p>
         <div class="research-actions">
-          <button id="finish" class="primary">完成剩餘十日</button
-          ><button id="compare">執行一組 A／B 比較</button><button id="export">匯出完整紀錄 ↓</button
-          ><button id="import">載入回放 ↑</button
-          ><input id="file" type="file" accept="application/json,.json" hidden />
+          <button id="finish" class="button primary">
+            <svg aria-hidden="true" class="icon"><use href="#i-forward" /></svg><span>完成剩餘十日</span>
+          </button>
+          <button id="compare" class="button">
+            <svg aria-hidden="true" class="icon"><use href="#i-compare" /></svg
+            ><span>執行一組 A／B 比較</span>
+          </button>
+          <button id="export" class="button">
+            <svg aria-hidden="true" class="icon"><use href="#i-download" /></svg><span>匯出完整紀錄</span>
+          </button>
+          <button id="import" class="button">
+            <svg aria-hidden="true" class="icon"><use href="#i-upload" /></svg><span>載入回放</span>
+          </button>
+          <input id="file" type="file" accept="application/json,.json" hidden />
         </div>
-        <div id="pair-panel" hidden></div>
-        <div id="research-detail" class="research-detail"></div>
+        <div id="pair-panel" class="comparison" hidden></div>
         <details class="protocol">
           <summary>V5 的規則與本次展示範圍</summary>
           <div class="rule-grid">
@@ -252,51 +332,95 @@
           </div>
         </details>
       </section>
-      <footer>
-        <span class="footer-brand">AI 小鎮 <span>／</span> 一起生活，慢慢發現。</span
-        ><span>研究計畫 V5 · HTML ＋ Phaser 互動展示 v0.7</span>
-      </footer>
+
+      <!-- Town journal and interaction network (both views). -->
+      <section class="stories" id="stories">
+        <div class="panel journal">
+          <div class="panel-heading">
+            <div>
+              <p class="kicker">小鎮記事</p>
+              <h2>每一次相遇，都能回到當時</h2>
+            </div>
+            <select id="event-filter" class="select" aria-label="記事類別">
+              <option value="life">生活片段</option>
+              <option value="social">對話與合作</option>
+              <option value="equipment">設備借還</option>
+              <option value="failed">未成立的行動</option>
+              <option value="all">全部事件</option>
+            </select>
+          </div>
+          <div id="events" class="event-list"></div>
+          <p class="panel-foot" id="events-foot">開始生活後，這裡會留下小鎮的片段。</p>
+        </div>
+        <div class="panel network-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="kicker">交集</p>
+              <h2>誰與誰有了交集</h2>
+            </div>
+            <span class="pill subtle">累計接觸</span>
+          </div>
+          <svg id="network" viewBox="0 0 360 270" role="img" aria-label="截至所選時段的累計互動網絡"></svg>
+          <div id="network-stats" class="network-stats"></div>
+          <p class="panel-note">連線來自有效回覆或完成合作；深色線為達到主指標條件的組合。點選查看來源。</p>
+          <div id="pair-links" class="pair-links"></div>
+        </div>
+      </section>
     </main>
+
+    <footer class="footer">
+      <span><strong>AI 小鎮</strong> 一起生活，慢慢發現。</span>
+      <span>研究計畫 V5 · HTML ＋ Phaser 互動展示 v0.8</span>
+    </footer>
+
     <!-- Dialogs: new run settings and event evidence. -->
-    <dialog id="settings-dialog">
+    <dialog id="settings-dialog" aria-labelledby="settings-title">
       <form id="settings-form">
         <div class="dialog-heading">
           <div>
-            <p class="eyebrow">A NEW DAY, A NEW TOWN</p>
-            <h2>建立新的小鎮</h2>
+            <p class="kicker">新的一天，新的小鎮</p>
+            <h2 id="settings-title">建立新的小鎮</h2>
           </div>
-          <button type="button" class="close-dialog" data-close="settings-dialog" aria-label="關閉設定">
-            ×
+          <button type="button" class="tool" data-close="settings-dialog" aria-label="關閉設定">
+            <svg aria-hidden="true" class="icon"><use href="#i-close" /></svg>
           </button>
         </div>
-        <p>設備數量是 V5 的主要對照。建立新場次會清空目前進度，需要保留時請先匯出紀錄。</p>
-        <label for="condition">設備可用量</label
-        ><select id="condition">
-          <option value="2">B2 · 製作工具、攝影設備各 2 件</option>
-          <option value="3">B3 · 製作工具、攝影設備各 3 件</option>
-          <option value="8">A8 · 製作工具、攝影設備各 8 件</option></select
-        ><label for="seed">場次種子</label
-        ><input id="seed" type="number" min="0" max="999999999" value="20261103" required /><small
-          >相同種子與條件可重現這份離線示範。角色記憶在新場次重新開始。</small
-        >
+        <p class="dialog-copy">
+          設備數量是 V5 的主要對照。建立新場次會清空目前進度，需要保留時請先匯出紀錄。
+        </p>
+        <label class="field">
+          <span>設備可用量</span>
+          <select id="condition" class="select">
+            <option value="2">B2 · 製作工具、攝影設備各 2 件</option>
+            <option value="3">B3 · 製作工具、攝影設備各 3 件</option>
+            <option value="8">A8 · 製作工具、攝影設備各 8 件</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>場次種子</span>
+          <input id="seed" class="input" type="number" min="0" max="999999999" value="20261103" required />
+          <small>相同種子與條件可重現這份離線示範。角色記憶在新場次重新開始。</small>
+        </label>
         <p class="form-error" id="settings-error" role="alert"></p>
         <div class="dialog-actions">
-          <button type="button" data-close="settings-dialog">保留目前場次</button
-          ><button type="submit" id="reset" class="primary">建立新場次</button>
+          <button type="button" class="button" data-close="settings-dialog">保留目前場次</button>
+          <button type="submit" id="reset" class="button primary">建立新場次</button>
         </div>
       </form>
     </dialog>
-    <dialog id="evidence-dialog">
+    <dialog id="evidence-dialog" aria-labelledby="evidence-title">
       <div class="dialog-heading">
         <div>
-          <p class="eyebrow">FOLLOW THE STORY</p>
+          <p class="kicker">回到當時</p>
           <h2 id="evidence-title">事件來源</h2>
         </div>
-        <button class="close-dialog" data-close="evidence-dialog" aria-label="關閉事件來源">×</button>
+        <button class="tool" data-close="evidence-dialog" aria-label="關閉事件來源">
+          <svg aria-hidden="true" class="icon"><use href="#i-close" /></svg>
+        </button>
       </div>
       <div id="evidence-body"></div>
     </dialog>
-    <!-- Status messages. -->
-    <div id="toast" role="status" aria-live="polite" hidden></div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   </body>
 </html>

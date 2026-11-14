@@ -66,6 +66,11 @@ let exploring = false;
 let inspectedObject = null;
 
 const frame = () => frames[cursor];
+/** Replace the visible text of a button whose icon stays in place. */
+const setButtonLabel = (id, text) => {
+  const label = $(id).querySelector('.button-label');
+  if (label.textContent !== text) label.textContent = text;
+};
 const resident = id => frame().agents.find(a => a.id === id);
 const playbackInterval = () => Number($('speed').value);
 
@@ -84,11 +89,13 @@ const journal = createJournal($('events'));
 // Town scene
 
 const scene = createTownScene($('town-stage'), {
+  backgroundColor:
+    getComputedStyle(document.documentElement).getPropertyValue('--stage-bg').trim() || undefined,
   onSelect: id => selectResident(id),
   onExploreChange: ({ active, moving, locationName, message }) => {
     exploring = active;
     $('explore-toggle').setAttribute('aria-pressed', String(active));
-    $('explore-toggle').textContent = active ? '↙ 結束探訪' : '↗ 探訪小鎮';
+    setButtonLabel('explore-toggle', active ? '結束探訪' : '探訪小鎮');
     $('explore-status').hidden = !active;
     $('visitor-location').textContent = `${moving ? '前往' : '你在'} · ${locationName || '小鎮步道'}`;
     $('visitor-hint').textContent = message || '點地面行走 · WASD／方向鍵 · E 查看家具';
@@ -113,7 +120,7 @@ const scene = createTownScene($('town-stage'), {
       viewport.height = `${(100 * worldView.height) / WORLD_SIZE.height}%`;
     }
     $('camera-follow').setAttribute('aria-pressed', String(following));
-    $('camera-follow').textContent = following ? '◎ 正在跟隨' : '◎ 跟隨居民';
+    setButtonLabel('camera-follow', following ? '正在跟隨' : '跟隨居民');
   },
   onReady: ({ renderer, version, minimapUrl }) => {
     $('scene-status').hidden = true;
@@ -268,15 +275,18 @@ function updateControls() {
     $('step').disabled = cursor >= TOTAL_TICKS;
     $('finish').disabled = world.tick >= TOTAL_TICKS;
   }
-  $('play').textContent = playButtonLabel();
+  const { state, label } = playButtonState();
+  $('play').dataset.state = state;
+  setButtonLabel('play', label);
   $('playing-dot').classList.toggle('playing', !!playTimer);
 }
 
-function playButtonLabel() {
-  if (playTimer) return 'Ⅱ 暫停生活';
-  if (cursor === TOTAL_TICKS) return '↻ 從頭回放';
-  if (cursor < world.tick) return '▶ 播放回放';
-  return cursor ? '▶ 繼續生活' : '▶ 開始生活';
+/** The play button's icon state (start, playing or replay) and label. */
+function playButtonState() {
+  if (playTimer) return { state: 'playing', label: '暫停生活' };
+  if (cursor === TOTAL_TICKS) return { state: 'replay', label: '從頭回放' };
+  if (cursor < world.tick) return { state: 'start', label: '播放回放' };
+  return { state: 'start', label: cursor ? '繼續生活' : '開始生活' };
 }
 
 function toast(message) {
@@ -503,14 +513,16 @@ function createNewTown(event) {
   }
 }
 
+/** Switch between the town view and the research view (journal and network show in both). */
 function showResearch(research) {
+  document.body.dataset.view = research ? 'research' : 'town';
   $('research').hidden = !research;
   for (const name of ['life', 'research']) {
     const active = research === (name === 'research');
     $('mode-' + name).classList.toggle('active', active);
     $('mode-' + name).setAttribute('aria-pressed', String(active));
   }
-  $(research ? 'research' : 'town-section').scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
+  window.scrollTo({ top: 0, behavior: scrollBehavior() });
 }
 
 function selectTab(tab) {
@@ -528,7 +540,7 @@ function expandTown(expanded) {
   document.querySelector('.world-panel').classList.toggle('expanded', expanded);
   document.body.classList.toggle('town-expanded', expanded);
   $('fullscreen').setAttribute('aria-pressed', String(expanded));
-  $('fullscreen').innerHTML = expanded ? '↙ <span>收回小鎮</span>' : '⛶ <span>放大小鎮</span>';
+  setButtonLabel('fullscreen', expanded ? '收回小鎮' : '放大小鎮');
 }
 
 // ---------------------------------------------------------------------------
@@ -606,6 +618,7 @@ document.addEventListener('click', event => {
   else if (pair) showPairEvidence(pair);
   else if (jump) {
     $('evidence-dialog').close();
+    if (document.body.dataset.view !== 'town') showResearch(false);
     jumpTo(Number(jump));
     $('town-section').scrollIntoView({ behavior: scrollBehavior() });
   }

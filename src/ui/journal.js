@@ -31,7 +31,7 @@ export function createJournal(list) {
       `<span class="event-portrait">${author ? portrait(author) : ''}</span>` +
       `<span class="event-body"><strong>${esc(author?.name ?? '小鎮')}</strong>` +
       `<span class="event-tag">${EVENT_LABELS[event.type] || esc(event.type)}</span><p>${esc(event.text)}</p></span>` +
-      `<span class="event-arrow">↗</span></button>`;
+      `<svg class="icon event-arrow" aria-hidden="true"><use href="#i-arrow"/></svg></button>`;
     row = template.content.firstElementChild;
     rows.set(event.id, row);
     return row;

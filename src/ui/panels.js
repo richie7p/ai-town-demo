@@ -160,7 +160,7 @@ export function networkSVG({ frame, selected, resident }) {
       return (
         `<g data-pair="${d.key}" role="button" tabindex="0" aria-label="${label}">` +
         `<line ${coordinates} stroke="transparent" stroke-width="14"/>` +
-        `<line ${coordinates} stroke="${d.qualifies ? '#659259' : '#aebf98'}" stroke-width="${Math.min(4, 1 + d.allDays.length / 2)}" opacity=".7"/></g>`
+        `<line ${coordinates} class="network-link${d.qualifies ? ' qualifies' : ''}" stroke-width="${Math.min(4.5, 1.2 + d.allDays.length / 2)}" stroke-linecap="round" opacity=".85"/></g>`
       );
     })
     .join('');
@@ -169,17 +169,13 @@ export function networkSVG({ frame, selected, resident }) {
       const { x, y } = at[agent.id];
       return (
         `<g data-agent="${agent.id}" role="button" tabindex="0" aria-label="查看${esc(agent.name)}">` +
-        `<circle cx="${x}" cy="${y}" r="17" fill="${agent.color}" stroke="${agent.id === selected ? '#d3b86e' : '#fafbf4'}" stroke-width="3"/>` +
-        `<text x="${x}" y="${y + 4}" text-anchor="middle" fill="white" font-size="11">${esc(agent.name.slice(-1))}</text>` +
-        `<text x="${x}" y="${y + 32}" text-anchor="middle" fill="#7f9073" font-size="10">${esc(agent.name)}</text></g>`
+        `<circle cx="${x}" cy="${y}" r="18" fill="${agent.color}" class="node-ring${agent.id === selected ? ' selected' : ''}" stroke-width="3"/>` +
+        `<text x="${x}" y="${y + 4.5}" text-anchor="middle" fill="white" font-size="12" font-weight="700">${esc(agent.name.slice(-1))}</text>` +
+        `<text x="${x}" y="${y + 33}" text-anchor="middle" class="node-name" font-size="11">${esc(agent.name)}</text></g>`
       );
     })
     .join('');
-  return (
-    '<circle cx="180" cy="130" r="91" fill="#eef0e5" stroke="#d9e1cb" stroke-dasharray="3 6"/>' +
-    links +
-    nodes
-  );
+  return '<circle cx="180" cy="130" r="91" class="network-ring" stroke-dasharray="3 6"/>' + links + nodes;
 }
 
 /** One button per pair that interacted, most interaction days first. */

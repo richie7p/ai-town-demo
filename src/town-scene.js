@@ -111,6 +111,7 @@ export function createTownScene(
     onInspectObject = () => {},
     onReady = () => {},
     onError = () => {},
+    backgroundColor = '#dce5c5',
   } = {},
 ) {
   const Phaser = globalThis.Phaser;
@@ -1248,7 +1249,7 @@ export function createTownScene(
       type: Phaser.AUTO,
       parent: host,
       ...size,
-      backgroundColor: '#dce5c5',
+      backgroundColor,
       banner: false,
       scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH, ...size, expandParent: false },
       render: { pixelArt: true, roundPixels: true },
