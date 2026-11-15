@@ -7,3 +7,10 @@ tmp/
 *.log
 .DS_Store
 Thumbs.db
+
+# AI Town v6
+.venv/
+__pycache__/
+.pytest_cache/
+v6/backend/saves/
+v6/frontend/dist/
