@@ -57,7 +57,15 @@ add('home-coffee','home','coffee',14,15,3,1,'客廳矮桌','可以在這裡整�
 for(const [i,[x,y]] of [[10,13],[12,13],[18,13],[20,13],[10,17],[12,17],[18,17],[20,17]].entries()){
   const o=add(`home-seat-${i}`,'home','armchair',x,y,1,1,'客廳沙發椅','可坐下閱讀和休息。',{approach:[x,y],seat:true,passable:true,facing:'down',tone:i%2});restSeats.home.push(o);
 }
-add('home-plant','home','plant',25,17,1,1,'窗邊植栽','光線下的一角綠意。',{approach:[24,17]});
+add('home-plant','home','plant',25,17,1,1,'窗邊植栽','光線下的一角綠意。',{approach:[25,18]});
+// Lived-in details. They sit on free cells beside the existing seats; the door gaps (x 6/12/18/24 on row 11),
+// the south doors, every approach point and every default standing cell stay clear.
+add('home-sofa','home','sofa',14,13,3,1,'三人沙發','客廳裡最軟的位置，適合並肩看書、聊聊今天。',{approach:[15,14]});
+add('home-dining','home','dining',21,16,4,2,'共享餐桌','大家輪流煮飯、一起吃飯的長餐桌，桌上總有一瓶花。',{approach:[22,18]});
+add('home-vinyl','home','record',4,15,2,1,'黑膠唱片機','老唱片與小喇叭，傍晚常會有人放一張輕音樂。',{approach:[4,16]});
+add('home-vanity','home','vanity',25,9,2,1,'房間洗手檯','鏡子、毛巾與一小盆植物，早晨在這裡梳洗。',{approach:[25,10]});
+add('home-plant-b','home','plant',4,18,1,1,'沙發旁盆栽','寬大的葉片替客廳遮出一小片陰影。',{approach:[5,18]});
+add('home-plant-c','home','plant',26,12,1,1,'廚房邊盆栽','靠近茶水檯的綠色角落。',{approach:[26,13]});
 add('workshop-storage','workshop','toolwall',38,4,8,1,'工具收納牆','依序收納工具，方便居民借用與歸還。',{approach:[41,5]});
 add('workshop-cabinet','workshop','cabinet',53,4,6,1,'材料櫃','木料、零件與尚未完成的小作品。',{approach:[56,5]});
 for(const [i,[x,y]] of [[39,8],[51,8],[39,14],[51,14]].entries()){
@@ -69,6 +77,7 @@ for(let i=0;i<8;i++){
   const o=add(`workshop-seat-${i}`,'workshop','stool',x,18,1,1,'工坊休息凳','等候設備或稍作休息。',{approach:[x,18],passable:true,seat:true,facing:'up'});restSeats.workshop.push(o);
 }
 add('workshop-plant','workshop','plant',58,12,1,1,'工坊盆栽','桌邊的綠色小角落。',{approach:[57,12]});
+add('workshop-plant-b','workshop','plant',37,12,1,1,'入口盆栽','工坊門邊的大葉植物，木屑間一點生氣。',{approach:[38,12]});
 add('plaza-counter','plaza','cafeCounter',5,30,8,2,'咖啡吧檯','飄著咖啡香的公共客廳聚會角落。',{approach:[9,32]});
 add('plaza-shelf','plaza','bookshelf',23,30,3,1,'交換書架','放著可翻閱的書與居民留下的裝飾。',{approach:[24,31]});
 for(const [i,[x,y]] of [[7,35],[19,35],[7,40],[19,40]].entries()){
@@ -79,6 +88,7 @@ for(const [i,[x,y]] of [[7,35],[19,35],[7,40],[19,40]].entries()){
 }
 add('plaza-plant','plaza','plant',25,41,1,1,'咖啡廳琴葉榕','窗邊舒展的葉片。',{approach:[24,41]});
 add('plaza-menu','plaza','sign',18,30,1,1,'小鎮留言板','空間說明與展示用留言板。',{approach:[18,31]});
+add('plaza-plant-b','plaza','plant',4,43,1,1,'角落盆栽','咖啡廳角落的大葉植物。',{approach:[5,43]});
 add('studio-storage','studio','cabinet',38,30,8,1,'攝影器材櫃','相機與攝影配件整齊收納在這裡。',{approach:[41,31]});
 add('studio-backdrop','studio','backdrop',52,30,7,2,'攝影背景牆','共同攝影活動的取景區。',{approach:[55,33]});
 for(const [i,[x,y]] of [[39,34],[51,34],[39,40],[51,40]].entries()){
@@ -88,6 +98,8 @@ for(const [i,[x,y]] of [[39,34],[51,34],[39,40],[51,40]].entries()){
 for(let i=0;i<8;i++){
   const x=38+i*3;const o=add(`studio-seat-${i}`,'studio','stool',x,43,1,1,'活動室休息凳','觀察作品，或等待下一次共同活動。',{approach:[x,43],passable:true,seat:true,facing:'up'});restSeats.studio.push(o);
 }
+add('studio-gallery','studio','gallery',49,30,3,2,'作品展示架','居民拍下的風景與生活照，輪流掛上這面展示架。',{approach:[50,32]});
+add('studio-plant','studio','plant',37,43,1,1,'活動室盆栽','角落裡替作品增添綠意。',{approach:[37,42]});
 // Outdoor furnishings sit off the main avenues, keeping broad clear crossings.
 add('garden-fountain','plaza','fountain',5,22,3,3,'街角小噴泉','公共步道旁的流水聲。',{approach:[8,23]});
 add('garden-planter-a','plaza','planter',22,22,3,1,'花壇','步道旁的季節花草。',{approach:[23,23]});
@@ -125,7 +137,7 @@ export function locationAt(x,y){
   return room?{zone:room.zone,name:room.name,room:room.name}:{zone:null,name:'花園步道'};
 }
 const defaultPoints={
-  home:[[5,16],[8,16],[11,16],[13,16],[17,16],[19,16],[22,16],[25,16]],
+  home:[[5,16],[8,16],[11,16],[13,16],[17,16],[19,16],[22,15],[25,15]],
   workshop:[[38,12],[41,12],[44,12],[47,12],[50,12],[53,12],[56,12],[59,12]],
   plaza:[[5,33],[8,33],[11,33],[14,33],[17,33],[20,33],[23,33],[26,33]],
   studio:[[38,38],[41,38],[44,38],[47,38],[50,38],[53,38],[56,38],[59,38]],

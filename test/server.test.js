@@ -18,6 +18,12 @@ test('local server serves the demo and excludes repository/private files', { tim
   assert.equal(landscape.headers.get('content-type'), 'image/png');
   const picture = new Uint8Array(await landscape.arrayBuffer());
   assert.deepEqual([...picture.slice(0,8)], [137,80,78,71,13,10,26,10]);
+  const atlas = await fetch(base + '/assets/furniture-atlas-v0.8.png');
+  assert.equal(atlas.status, 200);
+  assert.equal(atlas.headers.get('content-type'), 'image/png');
+  const status = await (await fetch(base + '/api/status')).json();
+  assert.equal(typeof status.configured, 'boolean', 'status is readable without a model request');
+  assert.ok(!JSON.stringify(status).includes('sk-'), 'status never exposes credentials');
   const phaser = await fetch(base + '/vendor/phaser.js');
   assert.equal(phaser.status, 200);
   assert.match(phaser.headers.get('content-type'), /(?:text|application)\/javascript/);
@@ -28,7 +34,7 @@ test('local server serves the demo and excludes repository/private files', { tim
   assert.equal(license.status, 200);
   assert.match(await license.text(), /MIT License/);
   for (const path of [
-    '/.git/config', '/.env', '/package.json', '/package-lock.json',
+    '/.git/config', '/.env', '/.env.local', '/server/llm-policy.mjs', '/package.json', '/package-lock.json',
     '/output/demo-replay.json', '/src/../../.env',
     '/assets/private.png', '/assets/../package.json',
     '/node_modules/phaser/package.json', '/node_modules/phaser/dist/phaser.min.js',

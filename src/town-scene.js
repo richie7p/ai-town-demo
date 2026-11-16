@@ -7,6 +7,7 @@ import { TILE_SIZE, MAP_OBJECTS, isWalkable, findWalkPath, activityAnchor, neare
 
 const { width: W, height: H } = WORLD_SIZE;
 const VIEW_WIDTH=1200;
+const HERO_FOCUS=[496,384];
 const FONT='"Microsoft JhengHei", "Noto Sans TC", sans-serif';
 const idleFrames={down:0,left:1,right:2,up:3};
 const characterClips=RESIDENT_CLIPS;
@@ -83,7 +84,8 @@ export function createTownScene(host,{onSelect=()=>{},onCameraChange=()=>{},onEx
   class TownScene extends Phaser.Scene{
     constructor(){super('v5-town');this.ready=false;this.built=false;this.characters=new Map();this.bubbles=[];this.ambientTweens=[];this.ambientLights=[];this.frame=null;this.options={};this.drag=null;this.keys=new Set();this.visitor=null;this.objectHighlight=null;}
     preload(){
-      this.load.once('loaderror',file=>{this.assetError=new Error(`小鎮美術載入失敗：${file?.key||'場景素材'}`);reportError(this.assetError);});townAssets.preloadTownAssets?.(this);
+      // The furniture atlas is optional: if it is missing the code-drawn furniture is used instead.
+      this.load.once('loaderror',file=>{if(file?.key===townAssets.FURNITURE_ATLAS_KEY)return;this.assetError=new Error(`小鎮美術載入失敗：${file?.key||'場景素材'}`);reportError(this.assetError);});townAssets.preloadTownAssets?.(this);
     }
     create(){
       try{
@@ -104,6 +106,8 @@ export function createTownScene(host,{onSelect=()=>{},onCameraChange=()=>{},onEx
         document.addEventListener('keydown',this.handleKeyDown);document.addEventListener('keyup',this.handleKeyUp);globalThis.addEventListener('blur',this.clearKeys);canvas.addEventListener('blur',this.clearKeys);
         this.events.once('shutdown',()=>{this.ready=false;this.input.removeAllListeners();this.bubbles=[];this.characters.clear();this.keys.clear();document.removeEventListener('keydown',this.handleKeyDown);document.removeEventListener('keyup',this.handleKeyUp);globalThis.removeEventListener('blur',this.clearKeys);canvas.removeEventListener('blur',this.clearKeys);});
         if(pending)this.applyFrame(pending);
+        // Open on the lived-in shared apartment; "全鎮視角" still shows the whole town.
+        zoom=clampZoom(2.4);this.applyCamera();this.cameras.main.stopFollow().centerOn(HERO_FOCUS[0],HERO_FOCUS[1]);
         onReady({renderer:this.game.renderer.type===Phaser.WEBGL?'WebGL':'Canvas',version:Phaser.VERSION,minimapUrl:createMinimapDataUrl()});notifyCamera();notifyExplore('',true);
       }catch(error){reportError(error);}
     }
@@ -147,7 +151,7 @@ export function createTownScene(host,{onSelect=()=>{},onCameraChange=()=>{},onEx
     }
     build(frame){
       const assets=townAssets.registerTownAssets(this,frame.agents);this.assets=assets;if(!this.textures.exists(assets.backgroundKey))throw new Error('小鎮背景尚未載入完成。');
-      this.add.image(0,0,assets.backgroundKey).setOrigin(0,0).setDisplaySize(W,H).setDepth(0);for(const layer of assets.foreground)this.add.image(layer.x,layer.y,layer.key).setOrigin(0,0).setDepth(layer.depth);
+      this.add.image(0,0,assets.backgroundKey).setOrigin(0,0).setDisplaySize(W,H).setDepth(0);for(const layer of assets.foreground)this.add.image(layer.x,layer.y,layer.key).setOrigin(0,0).setScale(layer.scale||1).setDepth(layer.depth);
       const fountain=assets.ambient?.fountain;
       if(fountain)for(let i=0;i<3;i++){const ripple=this.add.ellipse(fountain.x,fountain.y,(fountain.radius||34)+i*14,10+i*5).setStrokeStyle(1,0xf3fff9,.55).setDepth(fountain.y-2);this.ambientTweens.push(this.tweens.add({targets:ripple,scaleX:1.16,scaleY:1.14,alpha:.18,duration:1300+i*270,yoyo:true,repeat:-1,paused:true,delay:i*200}));}
       for(const lamp of assets.ambient?.lamps||[]){this.ambientLights.push(this.add.ellipse(lamp.x,lamp.y,64,64,0xffdf8e,1).setAlpha(0).setDepth(3005));this.ambientLights.push(this.add.ellipse(lamp.x,lamp.y,22,22,0xffeab3,1).setAlpha(0).setDepth(3006));}
@@ -329,7 +333,13 @@ export function createTownScene(host,{onSelect=()=>{},onCameraChange=()=>{},onEx
     }
   }
   try{
-    game=new Phaser.Game({type:Phaser.AUTO,parent:host,width:VIEW_WIDTH*dpr,height:viewHeight*dpr,backgroundColor:'#dce5c5',banner:false,scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH,width:VIEW_WIDTH*dpr,height:viewHeight*dpr,expandParent:false},render:{pixelArt:true,roundPixels:true},audio:{noAudio:true},fps:{target:60},scene:TownScene});
+    game=new Phaser.Game({
+      type:Phaser.AUTO,parent:host,width:VIEW_WIDTH*dpr,height:viewHeight*dpr,backgroundColor:'#dce5c5',banner:false,
+      scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH,width:VIEW_WIDTH*dpr,height:viewHeight*dpr,expandParent:false},
+      // Load same-origin art directly. The default XHR loader creates a blob URL.
+      loader:{imageLoadType:'HTMLImageElement'},
+      render:{pixelArt:true,roundPixels:true},audio:{noAudio:true},fps:{target:60},scene:TownScene,
+    });
     if(globalThis.ResizeObserver){resizeObserver=new ResizeObserver(resize);resizeObserver.observe(host);}globalThis.addEventListener('resize',resize);
   }catch(error){reportError(error);}
   return api;

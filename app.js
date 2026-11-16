@@ -7,6 +7,7 @@ import { WORLD_SIZE } from './src/town-view-model.js';
 import { activityAnchor, createMinimapDataUrl } from './src/town-map.js';
 import { createTownScene } from './src/town-scene.js';
 import { ZONES, dayOf, slotOf, ACTION_NAMES } from './src/config.js';
+import { townApi } from './src/llm-client.js';
 
 const $ = id => document.getElementById(id);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
@@ -19,6 +20,19 @@ const lifeKinds = ['talk','reply','invite','accept','decline','cooperation','wor
 const kinds = {talk:'交談',reply:'回覆',invite:'邀請合作',accept:'接受邀請',decline:'婉拒邀請',borrow:'借用成功',borrow_attempt:'借用嘗試',capacity_failure:'設備不足',return:'提前歸還',release:'歸還完成',move:'移動',work:'設備活動',join:'加入合作',cooperation:'合作完成',interaction:'互動日證據',initiation:'發起已驗證',invitation_outcome:'邀請結算',rest:'休息',walk:'散步',wait:'等待',invalid:'無效行動',join_failed:'未能加入'};
 let state = createWorld(), frames = [viewFrame(state)], viewed = 0, selected = 'A01', activeTab = 'now';
 let timer = null, busy = false, worker = null, toastTimer;
+let runtime = null, apiStatus = null, deciding = false, readOnlyReplay = false, decisionError = '', initialising = true;
+const isLLM = () => state.config.policy === 'llm-responses-v1';
+const remember = (key, value) => {try {localStorage.setItem('ai-town-'+key, value);} catch { /* Storage is optional. */ }};
+const recall = key => {try {return localStorage.getItem('ai-town-'+key);} catch {return null;}};
+const actionName = action => Object.hasOwn(ACTION_NAMES, action) ? ACTION_NAMES[action] : '無效行動';
+const finiteCount = value => Number.isFinite(value) && value >= 0 ? value : 0;
+const LIMITS = [6, 12, 24, 120];
+// Imported audit text is untrusted display data: derive numbers locally and keep the original only for re-export.
+function importedRuntime(audit, ticks) {
+  const records = (Array.isArray(audit?.records) ? audit.records : []).filter(r => r && typeof r === 'object');
+  const usage = records.reduce((u, r) => ({ calls: u.calls + 1, inputTokens: u.inputTokens + finiteCount(r.usage?.inputTokens), outputTokens: u.outputTokens + finiteCount(r.usage?.outputTokens), failedCalls: u.failedCalls + Number(r.status !== 'ok') }), { calls: 0, inputTokens: 0, outputTokens: 0, failedCalls: 0 });
+  return { runId: null, model: String(audit?.model ?? '未記錄').slice(0, 80), promptVersion: String(audit?.promptVersion ?? '').slice(0, 40), maxSteps: ticks, usage, records, pending: null, serverRemainingCalls: null, saveError: null, auditSource: audit };
+}
 const frame = () => frames[viewed];
 const pastEvents = () => state.events.filter(event => event.tick <= viewed);
 const actor = id => frame().agents.find(a => a.id === id);
@@ -84,28 +98,122 @@ function toast(message) { $('toast').textContent = message; $('toast').hidden = 
 function controls() {
   for (const id of ['reset','step','play','finish','compare','import','export','settings-open','latest']) $(id).disabled = busy;
   $('seek').disabled = busy || !state.tick;
-  if (!busy) { $('step').disabled = viewed >= 120; $('finish').disabled = state.tick >= 120; }
+  if (!busy) { $('step').disabled = viewed >= 120 || (readOnlyReplay && viewed === state.tick) || (isLLM() && viewed === state.tick && state.tick >= (runtime?.maxSteps || 120)); $('finish').disabled = state.tick >= 120 || isLLM() || readOnlyReplay; $('compare').disabled = isLLM() || readOnlyReplay; }
+  if(initialising) for(const id of ['play','step','settings-open']) $(id).disabled=true;
+  if(deciding && timer) $('play').disabled=false;
   $('play').textContent = timer ? 'Ⅱ 暫停生活' : viewed === 120 ? '↻ 從頭回放' : viewed < state.tick ? '▶ 播放回放' : viewed ? '▶ 繼續生活' : '▶ 開始生活';
+  if(deciding) $('play').textContent=timer?'Ⅱ 暫停後續決策':'正在完成本時段…';
+  else if(readOnlyReplay && viewed===state.tick) $('play').textContent='↻ 從頭回放';
+  else if(isLLM() && state.tick >= (runtime?.maxSteps || 120) && viewed===state.tick) $('play').textContent='↻ 回放本場生活';
   $('playing-dot').classList.toggle('playing', !!timer);
 }
 function stop() { clearInterval(timer); timer = null; controls(); scene.render(frame(), {selected,playing:false,duration:Number($('speed').value)*0.45,reducedMotion:reduced.matches,animate:false}); }
 function selectAgent(id) { if (!actor(id)) return; selected = id; render({animate:false}); }
-function advance() {
-  if(timer&&scene.isTransitioning())return;
+async function advance() {
+  if(busy || initialising || (timer&&scene.isTransitioning()))return;
   try {
-    if (viewed < state.tick) viewed++;
+    let replayed = false;
+    if (viewed < state.tick) {viewed++; replayed = true;}
+    else if(readOnlyReplay) {stop();toast('回放已到保存的最後時段，播放過程不呼叫 API。');return;}
+    else if (state.tick < 120 && isLLM()) {await advanceLLM();return;}
     else if (state.tick < 120) {state = step(state, propose(state)); frames.push(viewFrame(state)); viewed = state.tick;}
     else {stop(); return;}
     render({animate:viewed!==120});
     if (viewed === 120) {stop(); toast('十日生活已完成，可以從頭回放，或匯出完整紀錄。');}
+    // Replaying saved LLM steps must never roll into a paid request without a fresh user action.
+    else if (replayed && timer && isLLM() && !readOnlyReplay && viewed === state.tick) {stop(); toast('已回放到最新進度。按「繼續生活」或「下一步」才會向模型送出新請求。');}
   } catch (error) {stop(); toast(error.message);}
 }
 function start() {
-  if (busy) return;
   if (timer) {stop(); return;}
-  if (viewed === 120) {viewed = 0; render({animate:false});}
+  if (busy || initialising) return;
+  if (viewed === 120 || (viewed===state.tick && state.tick && (readOnlyReplay || (isLLM() && state.tick >= runtime.maxSteps)))) {viewed = 0; render({animate:false});}
   timer = setInterval(advance, Number($('speed').value)); controls();
   if(viewed===0)advance();else render({animate:false});
+}
+function applySnapshot(snapshot, rebuild=false) {
+  const previous=state.tick;
+  if(rebuild || snapshot.state.tick!==previous+1){
+    let cursor=createWorld(snapshot.state.config);frames=[viewFrame(cursor)];
+    for(const trace of snapshot.state.trace){cursor=step(cursor,trace.proposals);frames.push(viewFrame(cursor));}
+  }else frames.push(viewFrame(snapshot.state));
+  state=snapshot.state;runtime=snapshot.runtime;viewed=state.tick;
+}
+function renderDecisionStatus() {
+  const llm=isLLM();
+  $('source-title').textContent=initialising?'正在連接小鎮':readOnlyReplay?(llm?'LLM 紀錄回放':'離線紀錄回放'):llm?'LLM 自主生活':'離線生活示範';
+  $('source-detail').textContent=llm?(readOnlyReplay?'播放已保存的決策 · 不呼叫 API':runtime?.model || apiStatus?.model || '等待本機模型設定'):'規則型角色 · 不呼叫 API';
+  $('decision-bar').hidden=!llm;
+  $('llm-research-note').hidden=!llm;
+  if(!llm)return;
+  const pending=runtime?.pending, limit=runtime?.maxSteps || 12, failed=pending?.failedActors?.length || 0;
+  // A partially failed batch stays visible after refresh because the server keeps its saved decisions.
+  const error=decisionError || (!deciding && !readOnlyReplay && failed ? `第 ${pending.tick} 時段有 ${failed} 位居民未完成決策，已保存 ${pending.completed}/8 份。重試只會補送未完成的居民。` : '');
+  $('decision-state').textContent=deciding?`第 ${pending?.tick || state.tick+1} 時段 · ${pending?.completed || 0}/8 位居民已決定`:error&&!readOnlyReplay?`已暫停於 ${state.tick}/${limit} 時段 · 可手動重試`:readOnlyReplay?'回放保存的模型決策':state.tick>=limit?`已到本場上限 · ${state.tick}/${limit} 時段`:state.tick?`${state.tick}/${limit} 時段 · 等待下一次自主決策`:'按「開始生活」啟動模型';
+  const u=runtime?.usage || {};
+  $('decision-usage').textContent=`${finiteCount(u.calls)} 次請求${finiteCount(u.failedCalls)?`（${finiteCount(u.failedCalls)} 次失敗）`:''} · 輸入 ${finiteCount(u.inputTokens).toLocaleString()}／輸出 ${finiteCount(u.outputTokens).toLocaleString()} tokens${Number.isFinite(runtime?.serverRemainingCalls)?` · 本次服務還可送 ${runtime.serverRemainingCalls} 次`:''}`;
+  $('decision-progress').hidden=!deciding;
+  $('decision-progress').value=pending?.completed || 0;
+  $('decision-error').hidden=!error;
+  $('decision-error-text').textContent=error;
+  $('decision-retry').hidden=readOnlyReplay || !runtime?.runId;
+  $('decision-retry').disabled=busy || readOnlyReplay || !runtime?.runId;
+  $('llm-research-note').textContent=readOnlyReplay?'這是已保存的 LLM 工程試跑，只能回放與重新匯出，播放過程不呼叫 API。':`本場最多 ${limit} 時段，每時段各自請求八位居民，同一份時段前快照、各看各的觀察與記憶；世界規則統一結算。用量含失敗請求，不自動重試。快速完成與 A／B 比較只在離線模式提供。非正式研究結果。`;
+}
+async function advanceLLM() {
+  if(state.tick>=runtime.maxSteps){stop();toast(`本場 ${runtime.maxSteps} 時段已完成，可匯出紀錄。`);return;}
+  if(!runtime?.runId){stop();toast('這份紀錄只能回放，請在場次設定建立新的 LLM 小鎮。');return;}
+  busy=deciding=true;decisionError='';controls();renderDecisionStatus();
+  const runId=runtime.runId;
+  const poll=setInterval(async()=>{
+    try {const p=await townApi(`/api/llm/runs/${runId}/progress`);if(deciding && runtime?.runId===runId){runtime={...runtime,...p.runtime};renderDecisionStatus();}}catch{/* The step response handles connection failures. */}
+  },1000);
+  try {
+    const snapshot=await townApi(`/api/llm/runs/${runId}/step`,{expectedTick:state.tick});
+    applySnapshot(snapshot);decisionError='';
+    if(runtime.saveError)toast(runtime.saveError);
+    if(state.tick>=runtime.maxSteps){stop();toast(`本場 ${runtime.maxSteps} 時段已完成，模型已停止請求。可回放或匯出紀錄。`);}
+  } catch(error) {
+    stop();decisionError=error.message;
+    if(error.code==='run_not_found'){
+      // The local service restarted: keep the browser copy as a read-only, exportable record.
+      runtime={...runtime,runId:null,pending:null};readOnlyReplay=true;decisionError='本機服務已重新啟動，這場次無法繼續。畫面保留為唯讀紀錄，可匯出；請在場次設定建立新場次。';
+    } else {
+      // Recover a lost response or retain successful partial decisions; never auto-retry a paid request.
+      try {const snapshot=await townApi(`/api/llm/runs/${runId}`);if(snapshot.state.tick>state.tick){applySnapshot(snapshot);decisionError='連線曾中斷，本時段已完成並恢復。按繼續後才會執行下一步。';}else runtime=snapshot.runtime;} catch{/* Keep the previous world visible. */}
+    }
+    toast(decisionError);
+  } finally {
+    clearInterval(poll);busy=deciding=false;render({animate:true});
+  }
+}
+function adoptLLM(snapshot) {
+  applySnapshot(snapshot,true);readOnlyReplay=false;decisionError='';$('pair-panel').hidden=true;
+  remember('run',runtime.runId);remember('mode','llm');remember('llm-config',JSON.stringify({seed:state.config.seed,capacity:state.config.capacity,maxSteps:runtime.maxSteps}));
+}
+function savedLLMConfig() {
+  try {
+    const c=JSON.parse(recall('llm-config')||'null');
+    if(Number.isSafeInteger(c?.seed)&&c.seed>=0&&c.seed<=999999999&&[2,3,8].includes(c.capacity)&&LIMITS.includes(c.maxSteps))return {seed:c.seed,capacity:c.capacity,maxSteps:c.maxSteps};
+  } catch {/* Fall back to defaults. */}
+  return {seed:state.config.seed,capacity:state.config.capacity,maxSteps:12};
+}
+// Page load only reads status / local session state. It never sends a model request.
+async function initialise() {
+  const wantsLLM=recall('mode')==='llm';
+  try {
+    apiStatus=await townApi('/api/status');
+    if(wantsLLM){
+      if(!apiStatus.configured){remember('mode','rules');toast('先前使用 LLM 模式，但本機尚未設定 API 金鑰，已改用離線模式。');}
+      else {
+        const id=recall('run');let snapshot=null;
+        if(id && /^[a-f0-9-]{36}$/.test(id))try{snapshot=await townApi(`/api/llm/runs/${id}`);}catch{/* A restarted local server has no session. */}
+        if(!snapshot){snapshot=await townApi('/api/llm/runs',savedLLMConfig());if(id)toast('先前的本機場次已不存在（服務重啟後不保留），已用相同設定建立新場次。已保存的紀錄在 output/llm-runs。');}
+        adoptLLM(snapshot);
+      }
+    }
+  } catch {if(wantsLLM)toast('目前以離線模式開啟。使用 LLM 時，請確認新版本機服務已啟動。');}
+  finally {initialising=false;render();}
 }
 function background(type, payload, apply) {
   stop(); busy = true; controls();
@@ -126,21 +234,24 @@ function renderResidents(current) {
   for (const a of current.agents) {
     const el = $('resident-'+a.id), p = current.trace?.proposals.find(p => p.actor === a.id);
     el.classList.toggle('selected',a.id === selected); el.setAttribute('aria-pressed', String(a.id === selected));
-    el.setAttribute('aria-label',`${a.name}，${ZONES[a.zone].name}，${p ? ACTION_NAMES[p.action] : '準備開始'}`);
-    el.innerHTML = `<div class="mini-portrait">${portrait(a)}</div><strong>${esc(a.name)}</strong><small>${p ? ACTION_NAMES[p.action] : ZONES[a.zone].name}</small>`;
+    el.setAttribute('aria-label',`${a.name}，${ZONES[a.zone].name}，${p ? actionName(p.action) : '準備開始'}`);
+    el.innerHTML = `<div class="mini-portrait">${portrait(a)}</div><strong>${esc(a.name)}</strong><small>${p ? actionName(p.action) : ZONES[a.zone].name}</small>`;
   }
 }
 function renderAgent(current) {
   const a = current.agents.find(a => a.id === selected), p = current.trace?.proposals.find(p => p.actor === selected), o = current.trace?.observations[selected];
   const events = pastEvents(), result = p && events.filter(e => e.proposalId === p.id), failure = result?.find(e => failureKinds.includes(e.type));
-  const held = current.equipment.find(e => e.owner === selected);
+  const held = current.equipment.find(e => e.owner === selected), llm = isLLM();
+  // Only the short public reason and memories the world actually provided are shown; no private reasoning exists in the record.
+  const cited = llm && p && o ? o.provided.filter(m => p.citedMemoryIds.includes(m.id)) : [];
+  const llmDetail = llm && p ? `<p class="public-reason"><b>公開說明</b>${esc(p.reason || '模型沒有提供說明。')}</p><h4 class="mini-heading">本步引用的記憶</h4>${cited.length ? cited.map(m => `<button class="memory-chip" data-event="${esc(m.id)}">D${m.day} · 時段 ${slotOf(m.tick)}　${esc(m.text)}</button>`).join('') : '<p class="memory-intro">這一步沒有引用特定記憶。</p>'}` : '';
   $('agent-zone').textContent = ZONES[a.zone].name;
   $('agent-profile').innerHTML = `<div class="agent-profile"><div class="portrait">${portrait(a)}</div><div><h2>${esc(a.name)}<small>${a.id}</small></h2><p>${esc(a.interests)}</p></div></div><p class="agent-style">${esc(a.style)}</p>`;
   if (activeTab === 'now') {
     const recent = events.filter(e => e.participants.includes(selected) && lifeKinds.includes(e.type)).slice(-3).reverse();
-    $('agent-detail').innerHTML = `<div class="detail-kicker">${current.tick ? `第 ${dayOf(current.tick)} 天 · 時段 ${slotOf(current.tick)} 的提議` : '新的一天，還有很多可能'}</div><h3 class="current-action">${p ? ACTION_NAMES[p.action]+(p.target ? ' · '+esc(actor(p.target)?.name ?? p.target) : '') : '準備開始今天的生活'}</h3><p class="thought">${p ? esc(p.text || (p.destination ? `前往${(ZONES[p.destination]?.name ?? p.destination)}` : '依目前狀態安排自己的活動。')) : '點選「開始生活」，看看誰會先出門，又會遇見誰。'}</p>${p ? `<div class="outcome ${failure ? 'failed' : ''}"><span class="status-dot"></span><span>${esc(failure?.reason || result?.find(e => !['borrow_attempt'].includes(e.type))?.text || '本步已結算')}</span></div>` : ''}<div class="equipment-info">${held ? `持有${held.type === 'tools' ? '製作工具' : '攝影設備'} · ${held.usableFrom > current.tick ? '下一時段可用' : '可於下一步使用'}<br>於第 ${dayOf(held.until)} 天時段 ${slotOf(held.until)} 結束歸還` : '目前未持有設備，可自由安排下一步。'}</div>${recent.length ? '<h4 class="mini-heading">最近的小事</h4>'+recent.map(e => `<div class="recent-line"><small>第 ${dayOf(e.tick)} 天 · ${kinds[e.type]}</small><button data-event="${e.id}">${esc(e.text)}</button></div>`).join('') : ''}`;
+    $('agent-detail').innerHTML = `<div class="detail-kicker">${current.tick ? `第 ${dayOf(current.tick)} 天 · 時段 ${slotOf(current.tick)} 的提議` : '新的一天，還有很多可能'}</div><h3 class="current-action">${p ? actionName(p.action)+(p.target ? ' · '+esc(actor(p.target)?.name ?? p.target) : '') : '準備開始今天的生活'}</h3><p class="thought">${p ? esc(p.text || (p.destination ? `前往${(ZONES[p.destination]?.name ?? p.destination)}` : '依目前狀態安排自己的活動。')) : '點選「開始生活」，看看誰會先出門，又會遇見誰。'}</p>${p ? `<div class="outcome ${failure ? 'failed' : ''}"><span class="status-dot"></span><span>${esc(failure?.reason || result?.find(e => !['borrow_attempt'].includes(e.type))?.text || '本步已結算')}</span></div>` : ''}${llmDetail}<div class="equipment-info">${held ? `持有${held.type === 'tools' ? '製作工具' : '攝影設備'} · ${held.usableFrom > current.tick ? '下一時段可用' : '可於下一步使用'}<br>於第 ${dayOf(held.until)} 天時段 ${slotOf(held.until)} 結束歸還` : '目前未持有設備，可自由安排下一步。'}</div>${recent.length ? '<h4 class="mini-heading">最近的小事</h4>'+recent.map(e => `<div class="recent-line"><small>第 ${dayOf(e.tick)} 天 · ${kinds[e.type]}</small><button data-event="${esc(e.id)}">${esc(e.text)}</button></div>`).join('') : ''}`;
   } else if (activeTab === 'memory') {
-    $('agent-detail').innerHTML = `<p class="memory-intro">此步決策前實際取得的事件。${o ? `當時位於${ZONES[o.actor.zone].name}，共 ${o.provided.length} 筆。` : '尚未產生第一份觀察。'}<br>綠邊表示這一步的規則策略有引用，點選可查來源。</p>${o?.provided.length ? o.provided.map(m => `<button class="memory-card ${p.citedMemoryIds.includes(m.id) ? 'cited' : ''}" data-event="${esc(m.id)}"><span>D${m.day} · 時段 ${slotOf(m.tick)} · ${m.score === null ? '近期觀察' : '較早記憶'}${m.day < dayOf(current.tick) ? ' · 跨日' : ''}</span>${esc(m.text)}${p.citedMemoryIds.includes(m.id) ? '<br><em>本步已引用</em>' : ''}</button>`).join('') : '<div class="empty"><span class="empty-icon">▤</span>生活開始後，記憶也會慢慢累積。</div>'}<p class="memory-intro">${o ? `約 ${o.estimatedTokens} tokens${o.truncated ? '，已依容量截取' : ''}。` : ''}容量為近似估算。尚未接入模型反思；引用不等於因果證據。</p>`;
+    $('agent-detail').innerHTML = `<p class="memory-intro">此步決策前實際取得的事件。${o ? `當時位於${ZONES[o.actor.zone].name}，共 ${o.provided.length} 筆。` : '尚未產生第一份觀察。'}<br>綠邊表示這一步的${llm ? '模型' : '規則策略'}有引用，點選可查來源。</p>${o?.provided.length ? o.provided.map(m => `<button class="memory-card ${p.citedMemoryIds.includes(m.id) ? 'cited' : ''}" data-event="${esc(m.id)}"><span>D${m.day} · 時段 ${slotOf(m.tick)} · ${m.score === null ? '近期觀察' : '較早記憶'}${m.day < dayOf(current.tick) ? ' · 跨日' : ''}</span>${esc(m.text)}${p.citedMemoryIds.includes(m.id) ? '<br><em>本步已引用</em>' : ''}</button>`).join('') : '<div class="empty"><span class="empty-icon">▤</span>生活開始後，記憶也會慢慢累積。</div>'}<p class="memory-intro">${o ? `約 ${o.estimatedTokens} tokens${o.truncated ? '，已依容量截取' : ''}。` : ''}容量為近似估算。尚未接入模型反思；引用不等於因果證據。</p>`;
   } else {
     const dyads = current.metrics.dyads.filter(d => d.allDays.length && [d.a,d.b].includes(selected)).sort((a,b) => b.allDays.length-a.allDays.length || a.key.localeCompare(b.key));
     $('agent-detail').innerHTML = '<p class="memory-intro">截至這個時段，已經留下有效回覆或完成合作的交集。互動日數不代表友誼。</p>'+(dyads.length ? dyads.map(d => {const other=actor(d.a===selected ? d.b : d.a); return `<button class="connection-row" data-pair="${d.key}"><span class="mini-portrait">${portrait(other)}</span><span><strong>${esc(other.name)}</strong><small>${d.allDays.map(day => `D${day}`).join(' · ')}</small></span><span>${d.allDays.length} 日 ↗</span></button>`;}).join('') : '<div class="empty"><span class="empty-icon">↔</span>還沒有完成的互動。<br>先看看大家今天會去哪裡。</div>');
@@ -152,7 +263,7 @@ function renderEvents() {
   const events = pool.slice(-60).reverse();
   $('events').innerHTML = events.length ? events.map(e => {
     const a = actor(e.participants[0]);
-    return `<button class="event-row" data-event="${e.id}"><span class="event-time">DAY ${String(dayOf(e.tick)).padStart(2,'0')}<small>時段 ${String(slotOf(e.tick)).padStart(2,'0')}</small></span><span class="event-portrait">${a ? portrait(a) : ''}</span><span class="event-body"><strong>${esc(a?.name ?? '小鎮')}</strong><span class="event-tag">${kinds[e.type] || esc(e.type)}</span><p>${esc(e.text)}</p></span><span class="event-arrow">↗</span></button>`;
+    return `<button class="event-row" data-event="${esc(e.id)}"><span class="event-time">DAY ${String(dayOf(e.tick)).padStart(2,'0')}<small>時段 ${String(slotOf(e.tick)).padStart(2,'0')}</small></span><span class="event-portrait">${a ? portrait(a) : ''}</span><span class="event-body"><strong>${esc(a?.name ?? '小鎮')}</strong><span class="event-tag">${kinds[e.type] || esc(e.type)}</span><p>${esc(e.text)}</p></span><span class="event-arrow">↗</span></button>`;
   }).join('') : '<div class="empty"><span class="empty-icon">☷</span>還沒有這一類片段。<br>開始生活，讓故事慢慢發生。</div>';
   $('events-foot').textContent = `截至時段 ${viewed} · 此類共 ${pool.length} 筆，顯示最近 ${events.length} 筆。點選可回查事件。`;
 }
@@ -170,9 +281,9 @@ function render({animate=false} = {}) {
   $('phase-label').textContent = current.tick ? ['清晨，慢慢醒來','上午，各自忙碌','午後，走走聊聊','傍晚，準備休息'][Math.floor((slot-1)/3)]+` · ${slot}/12` : '清晨，準備出門';
   $('condition-label').textContent = `${current.config.capacity===8 ? 'A8' : 'B'+current.config.capacity} · 每類 ${current.config.capacity} 件設備`;
   $('timeline-label').textContent = `第 ${dayOf(current.tick)} 天 · ${current.tick ? slot : 0} / 12`;
-  $('timeline-total').textContent = `${current.tick} / 120`;
+  $('timeline-total').textContent = isLLM() && runtime?.maxSteps ? `${current.tick} / ${runtime.maxSteps}（上限）` : `${current.tick} / 120`;
   $('seek').max=state.tick; $('seek').value=viewed;
-  $('view-mode').textContent = busy ? '正在處理' : viewed<state.tick ? '歷史回放' : state.tick===120 ? '十日完成' : state.tick ? '最新進度' : '尚未開始';
+  $('view-mode').textContent = deciding ? '模型決策中' : busy ? '正在處理' : viewed<state.tick ? '歷史回放' : state.tick===120 ? '十日完成' : isLLM() && state.tick && state.tick>=(runtime?.maxSteps||120) ? '已到本場上限' : state.tick ? '最新進度' : '尚未開始';
   $('latest').hidden = viewed===state.tick;
   renderResidents(current); renderAgent(current); renderEvents(); renderNetwork(current); renderObject();
   $('progress-value').textContent = `${current.tick} / 120`;
@@ -181,10 +292,10 @@ function render({animate=false} = {}) {
   $('y-detail').textContent = m.final ? `${m.qualifiedLinks} / 28 對 · 工程示範值` : '尚未完成十日，不顯示最終指標';
   $('core-value').textContent = m.final ? m.persistentCores.length : '—';
   $('research-detail').textContent = `設備借用：${m.borrowAttempts} 次合法嘗試、${m.capacityFailures} 次容量失敗（${percent(m.capacityFailureRate)}）。合作完成率：${percent(m.cooperationRate)}，分母 ${m.observedInvitations}，尚未到期 ${m.rightCensoredInvitations}。`+(m.final ? ` 連結門檻 2／3／4 日：${[2,3,4].map(n=>percent(m.sensitivity[n])).join('／')}。` : '')+' 全部數值只使用目前回放位置之前的事件。';
-  controls(); scene.render(current,{selected,playing:!!timer,duration:Number($('speed').value)*0.45,reducedMotion:reduced.matches,animate});
+  renderDecisionStatus(); controls(); scene.render(current,{selected,playing:!!timer,duration:Number($('speed').value)*0.45,reducedMotion:reduced.matches,animate});
 }
 function evidenceCard(e) {
-  return `<article class="evidence-card"><small>D${dayOf(e.tick)} · 時段 ${slotOf(e.tick)} · ${kinds[e.type] || esc(e.type)} · ${e.id}</small><p>${esc(e.text)}</p><div class="evidence-meta">${e.participants.map(id=>esc(actor(id)?.name ?? id)).join('、')}${e.zone ? ' · '+ZONES[e.zone].name : ''}${e.failure_reason || e.reason ? ' · '+esc(e.failure_reason || e.reason) : ''}</div><button data-jump="${e.tick}">回到這個時段 →</button></article>`;
+  return `<article class="evidence-card"><small>D${dayOf(e.tick)} · 時段 ${slotOf(e.tick)} · ${kinds[e.type] || esc(e.type)} · ${esc(e.id)}</small><p>${esc(e.text)}</p><div class="evidence-meta">${e.participants.map(id=>esc(actor(id)?.name ?? id)).join('、')}${e.zone ? ' · '+ZONES[e.zone].name : ''}${e.failure_reason || e.reason ? ' · '+esc(e.failure_reason || e.reason) : ''}</div><button data-jump="${e.tick}">回到這個時段 →</button></article>`;
 }
 function showEvent(id) {
   const e=pastEvents().find(e=>e.id===id); if(!e) return;
@@ -210,6 +321,11 @@ function mode(research) {
 }
 $('play').addEventListener('click',start);
 $('step').addEventListener('click',()=>{stop();advance();});
+// Manual retry only re-requests residents whose decision for the pending step is still missing.
+$('decision-retry').addEventListener('click',()=>{
+  if(busy||initialising||readOnlyReplay||!runtime?.runId||!isLLM())return;
+  stop();viewed=state.tick;decisionError='';render({animate:false});advance();
+});
 $('latest').addEventListener('click',()=>{stop();viewed=state.tick;render();});
 $('speed').addEventListener('change',()=>{if(timer){clearInterval(timer);timer=setInterval(advance,Number($('speed').value));}render({animate:false});});
 $('seek').addEventListener('input',()=>{stop();viewed=Number($('seek').value);render();});
@@ -220,15 +336,38 @@ for(const tab of ['now','memory','connections']) $('tab-'+tab).addEventListener(
   for(const name of ['now','memory','connections']) {const active=name===tab;$('tab-'+name).classList.toggle('active',active);$('tab-'+name).setAttribute('aria-selected',String(active));}
   $('agent-detail').setAttribute('aria-labelledby','tab-'+tab);renderAgent(frame());
 });
-$('settings-open').addEventListener('click',()=>{stop();$('seed').value=state.config.seed;$('condition').value=state.config.capacity;$('settings-error').textContent='';$('settings-dialog').showModal();});
-$('settings-form').addEventListener('submit',event=>{
-  event.preventDefault();if(busy)return;
+function syncModeSettings() {
+  const llm=$('decision-mode').value==='llm';
+  $('llm-settings').hidden=!llm;
+  $('llm-settings-note').textContent=apiStatus && !apiStatus.configured
+    ? '本機尚未偵測到 API 金鑰。請在 .env.local 設定 OPENAI_API_KEY 後重新啟動服務，才能建立 LLM 場次。'
+    : `模型 ${apiStatus?.model || 'gpt-5.4-mini-2026-03-17'}。每位居民各自一次請求，不含手動重試。金鑰只存在本機伺服器；頁面載入與建立場次都不會呼叫模型。`;
+}
+$('decision-mode').addEventListener('change',syncModeSettings);
+$('settings-open').addEventListener('click',()=>{
+  stop();$('seed').value=state.config.seed;$('condition').value=state.config.capacity;$('settings-error').textContent='';
+  $('decision-mode').value=isLLM()?'llm':'rules';$('step-limit').value=String(LIMITS.includes(runtime?.maxSteps)?runtime.maxSteps:12);syncModeSettings();
+  $('settings-dialog').showModal();
+});
+$('settings-form').addEventListener('submit',async event=>{
+  event.preventDefault();if(busy||initialising)return;
+  busy=true;controls();
   try {
     if(!$('seed').value.trim()) throw new Error('請輸入場次種子。');
-    const fresh=createWorld({seed:Number($('seed').value),capacity:Number($('condition').value)});
-    stop();state=fresh;frames=[viewFrame(state)];viewed=0;$('pair-panel').hidden=true;
-    $('settings-dialog').close();render();toast('新小鎮準備好了，按「開始生活」觀察第一天。');
+    const seed=Number($('seed').value),capacity=Number($('condition').value);
+    stop();
+    // Any new session replaces the old one, including a mode switch; nothing carries over.
+    if($('decision-mode').value==='llm'){
+      const snapshot=await townApi('/api/llm/runs',{seed,capacity,maxSteps:Number($('step-limit').value)});
+      adoptLLM(snapshot);
+    } else {
+      const fresh=createWorld({seed,capacity});
+      state=fresh;frames=[viewFrame(state)];viewed=0;runtime=null;readOnlyReplay=false;decisionError='';$('pair-panel').hidden=true;remember('mode','rules');
+    }
+    busy=false;$('settings-dialog').close();render();
+    toast(isLLM()?`LLM 小鎮準備好了（上限 ${runtime.maxSteps} 時段）。按「開始生活」才會第一次請求模型。`:'新小鎮準備好了，按「開始生活」觀察第一天。');
   } catch(error){$('settings-error').textContent=error.message;}
+  finally {busy=false;controls();}
 });
 function expandTown(expanded) {
   document.querySelector('.world-panel').classList.toggle('expanded', expanded);
@@ -250,21 +389,31 @@ $('town-minimap').addEventListener('click',event=>{
   const rect=$('town-minimap').getBoundingClientRect();
   scene.panTo((event.clientX-rect.left)/rect.width*WORLD_SIZE.width,(event.clientY-rect.top)/rect.height*WORLD_SIZE.height);
 });
-$('finish').addEventListener('click',()=>background('finish',{state},result=>{state=result.state;frames.push(...result.frames);viewed=state.tick;render();toast('十日已完成。拖動時間軸，或按「從頭回放」觀看保存的生活。');}));
-$('compare').addEventListener('click',()=>background('compare',{seed:state.config.seed,capacity:state.config.capacity===3?3:2},({pair})=>{
+$('finish').addEventListener('click',()=>{if(isLLM()||readOnlyReplay){toast('LLM 場次不能用離線策略補完，請從生活介面逐步執行。');return;}background('finish',{state},result=>{state=result.state;frames.push(...result.frames);viewed=state.tick;render();toast('十日已完成。拖動時間軸，或按「從頭回放」觀看保存的生活。');});});
+$('compare').addEventListener('click',()=>{if(isLLM()||readOnlyReplay){toast('A／B 比較目前只提供離線規則模式。');return;}background('compare',{seed:state.config.seed,capacity:state.config.capacity===3?3:2},({pair})=>{
   $('pair-panel').hidden=false;
   $('pair-panel').innerHTML=`<h3>同種子的兩座小鎮 <span class="mini-label">SEED ${pair.seed}</span></h3><table><thead><tr><th>設備條件</th><th>主要指標 Y</th><th>容量失敗／嘗試</th><th>完成合作</th></tr></thead><tbody>${[['A8',pair.a],['B'+pair.lowCapacity,pair.b]].map(([name,m])=>`<tr><td>${name}</td><td>${percent(m.y)}</td><td>${m.capacityFailures} / ${m.borrowAttempts}</td><td>${m.completedCooperations}</td></tr>`).join('')}</tbody></table><p class="delta">B − A = ${pair.deltaPercentagePoints>0?'+':''}${pair.deltaPercentagePoints.toFixed(2)} 個百分點</p><p>${esc(pair.note)} 目前觀看的場次保留。</p>`;
   toast('配對示範完成。數值來自離線策略，不是正式研究結果。');
-}));
+});});
 $('export').addEventListener('click',()=>{
-  stop();const blob=new Blob([JSON.stringify(exportRun(state))],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');
-  link.href=url;link.download=`ai-town-demo-${state.config.seed}-capacity${state.config.capacity}-tick${state.tick}.json`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1500);toast(`已匯出全部 ${state.tick} 個已執行時段，包含完整提議與記憶紀錄。`);
+  stop();
+  // LLM exports must carry the request audit; an imported replay re-exports its original audit unchanged.
+  const llm=isLLM(),audit=llm?(readOnlyReplay&&runtime?.auditSource?runtime.auditSource:runtime):null;
+  if(llm&&!Array.isArray(audit?.records)){toast('這份 LLM 場次缺少請求紀錄，無法匯出。');return;}
+  const blob=new Blob([JSON.stringify(exportRun(state,audit))],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');
+  link.href=url;link.download=`ai-town-${llm?'llm':'demo'}-${state.config.seed}-capacity${state.config.capacity}-tick${state.tick}.json`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1500);
+  toast(llm?`已匯出 ${state.tick} 個已結算時段與模型請求紀錄（不含 API 金鑰）。這是工程試跑，不是正式結果。`:`已匯出全部 ${state.tick} 個已執行時段，包含完整提議與記憶紀錄。`);
 });
 $('import').addEventListener('click',()=>$('file').click());
 $('file').addEventListener('change',async event=>{
   const file=event.target.files[0];event.target.value='';if(!file)return;
   if(file.size>20*1024*1024){toast('檔案超過 20 MB 上限。');return;}
-  try{const data=JSON.parse(await file.text());background('import',{data},result=>{state=result.state;frames=result.frames;viewed=0;$('pair-panel').hidden=true;render();toast('回放驗證通過。按「播放回放」從第一天開始觀看。');});}catch{toast('無法讀取 JSON，請選擇本 demo 匯出的紀錄。');}
+  try{const data=JSON.parse(await file.text());background('import',{data},result=>{
+    state=result.state;frames=result.frames;viewed=0;$('pair-panel').hidden=true;decisionError='';
+    // An LLM replay is read-only: it has no live session and playback never calls the API.
+    if(isLLM()){readOnlyReplay=true;runtime=importedRuntime(result.audit,state.tick);}else{readOnlyReplay=false;runtime=null;}
+    render();toast(isLLM()?'LLM 回放驗證通過，為唯讀紀錄。按「播放回放」觀看，不會呼叫 API。':'回放驗證通過。按「播放回放」從第一天開始觀看。');
+  });}catch{toast('無法讀取 JSON，請選擇本 demo 匯出的紀錄。');}
 });
 document.addEventListener('click',event=>{
   const target=event.target.closest('[data-agent],[data-event],[data-pair],[data-jump],[data-close]');if(!target)return;
@@ -281,3 +430,4 @@ document.querySelector('.inspector-tabs').addEventListener('keydown',event=>{
 });
 window.addEventListener('pagehide',()=>{stop();worker?.terminate();scene.destroy();});
 render();
+initialise();

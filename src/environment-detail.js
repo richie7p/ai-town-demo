@@ -89,8 +89,13 @@ export function detailGround(c,tiles,rooms){
   for(let i=0;i<4;i++){const xx=x*32+2+Math.floor(noise(x+i,y)*27),yy=y*32+3+Math.floor(noise(x,y+i)*25);r(c,xx,yy,2,1,'#aec190');r(c,xx+1,yy-2,1,3,'#7f9e6b');}
   for(const[dx,dy,side]of[[-1,0,'l'],[1,0,'r'],[0,-1,'t'],[0,1,'b']]){const neighbor=tiles[y+dy]?.[x+dx];if(!neighbor||neighbor==='grass'||neighbor==='wall')continue;if(side==='l'||side==='r'){r(c,x*32+(side==='l'?0:30),y*32,2,32,'#5f8458');}else r(c,x*32,y*32+(side==='t'?0:30),32,2,'#5f8458');}
  }
+ // Kitchen tile, then coordinated rugs: sage living room, warm dining, dusty-blue vinyl corner.
+ for(let ty=12;ty<=14;ty++)for(let tx=22;tx<=26;tx++){r(c,tx*32,ty*32,32,32,(tx+ty)%2?'#dde1cd':'#cdd4bf');r(c,tx*32,ty*32,32,1,'#b3bca2');r(c,tx*32,ty*32,1,32,'#b3bca2');}
  rug(c,288,384,416,192,'#6d937d');rug(c,416,1088,160,256,'#a98565');rug(c,1472,1024,128,352,'#789b94');
+ rug(c,660,496,160,108,'#b8a273');rug(c,116,498,92,40,'#8d9bb0');rug(c,1568,1000,64,40,'#9aa99a');
  for(let i=0;i<4;i++)rug(c,(4+i*6)*32+4,8*32+8,152,20,['#a88973','#8f9c79','#8d98a4','#b5a171'][i]);
+ // Soft shade under each north wall keeps furniture readable and gives the rooms depth.
+ for(const room of rooms){const px=room.x*32,py=room.y*32;for(const[i,a]of['26','1c','10','08'].entries())r(c,px+32,py+32+i*5,room.w*32-64,5,`#2a3830${a}`);}
  for(const room of rooms){const px=room.x*32,py=room.y*32;for(let x=px+55;x<px+room.w*32-70;x+=192){p(c,[[x,py+32],[x+44,py+32],[x+75,py+117],[x+18,py+117]],'#fff2ba12');r(c,x+33,py+37,2,69,'#fff7cd15');}}
 }
 export function detailTree(c,x,y,s=1,seed=0){

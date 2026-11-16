@@ -1,8 +1,9 @@
 import { registerResidentAssets } from './resident-art.js';
 import { detailFurniture, detailGround, detailTree, drawDetailedWall } from './environment-detail.js';
 import { WORLD_SIZE, ZONE_CENTERS, MAP_ROOMS, MAP_TILES, MAP_WALLS, MAP_OBJECTS } from './town-map.js';
+import { FURNITURE_ATLAS_KEY, FURNITURE_ATLAS_URL, ATLAS_TILE, ATLAS_COLUMNS, ATLAS_ROWS, alphaBounds, atlasRecipe, layoutSprites } from './furniture-atlas.js';
 // Original code-drawn tiles. Visible solids share the collision map.
-const BACKGROUND_KEY='town-walkable-floor-v6';
+const BACKGROUND_KEY='town-walkable-floor-v8';
 const cv=(w,h)=>{const c=document.createElement('canvas');c.width=w;c.height=h;return c;};
 const r=(c,x,y,w,h,col)=>{c.fillStyle=col;c.fillRect(Math.round(x),Math.round(y),Math.round(w),Math.round(h));};
 function e(c,x,y,rx,ry,col){c.fillStyle=col;c.beginPath();c.ellipse(x,y,rx,ry,0,0,Math.PI*2);c.fill();}
@@ -29,6 +30,7 @@ function furniture(c,o){
  case 'bench':{r(c,7,h-10,5,15,edge);r(c,w-12,h-10,5,15,edge);r(c,6,-13,4,28,edge);r(c,w-10,-13,4,28,edge);for(let i=0;i<3;i++)r(c,0,-16+i*7,w,5,'#b69168');for(let i=0;i<3;i++)r(c,0,10+i*6,w,5,'#caaa7d');break;}
  case 'backdrop':{r(c,4,-15,4,h+12,'#687a70');r(c,w-8,-15,4,h+12,'#687a70');r(c,1,-19,w-2,6,'#71887c');r(c,10,-13,w-20,h+2,'#b6c6c3');r(c,14,-9,w-28,h-6,'#cdd7cd');r(c,10,h-12,w-20,10,'#a7bdb6');r(c,0,h-4,17,4,'#687a70');r(c,w-17,h-4,17,4,'#687a70');break;}
  case 'sign':{r(c,8,15,4,19,'#735f4d');r(c,23,15,4,19,'#735f4d');box(0,-21,w,h+9,'#647f6e');r(c,5,-14,w-10,2,'#ece6c9');r(c,5,-7,w-13,2,'#ece6c9');r(c,5,2,w-10,2,'#c9d6b5');r(c,5,8,w-14,2,'#c9d6b5');break;}
+ default:box(0,-6,w,h+6);break;
  case 'fountain':{e(c,w/2,h/2+3,w/2,h/2,'#738a82');e(c,w/2,h/2-3,w/2-2,h/2-3,'#c4ccba');e(c,w/2,h/2-5,w/2-10,h/2-12,'#82adb0');e(c,w/2,h/2-5,w/2-15,h/2-17,'#95bdba');e(c,w/2,h/2-5,16,9,'#b3bfb1');r(c,w/2-5,h/2-29,10,24,'#b3bfb1');e(c,w/2,h/2-30,15,6,'#d3d8c4');r(c,w/2-1,h/2-41,2,13,'#e1ece0');break;}
  }
 }
@@ -51,5 +53,35 @@ function nameplateLayers(scene){
   const key=`town-nameplate-v6-${room.zone}`;scene.textures.addCanvas(key,texture);return{x:(room.x+room.w/2)*32-width/2,y:room.y*32-42,key,depth:room.y*32+33};
  });
 }
-export function preloadTownAssets(){}
-export function registerTownAssets(scene,agents){if(!scene.textures.exists(BACKGROUND_KEY)){const texture=cv(WORLD_SIZE.width,WORLD_SIZE.height);ground(texture.getContext('2d'));detailGround(texture.getContext('2d'),MAP_TILES,MAP_ROOMS);scene.textures.addCanvas(BACKGROUND_KEY,texture);}let foreground=scene.registry.get('town-art-foreground-v6');if(!foreground){foreground=[...wallLayers(scene),...nameplateLayers(scene)];for(const o of MAP_OBJECTS){const texture=cv(o.width+32,o.height+96),c=texture.getContext('2d');c.imageSmoothingEnabled=false;c.translate(16,72);furniture(c,o);detailFurniture(c,o);const key=`town-object-v6-${o.id}`;scene.textures.addCanvas(key,texture);foreground.push({x:o.x-16,y:o.y-72,key,depth:o.y+o.height+(o.passable?-18:0)});}scene.registry.set('town-art-foreground-v6',foreground);}return{backgroundKey:BACKGROUND_KEY,backgroundSize:WORLD_SIZE,foreground,ambient:{fountain:{x:208,y:749,radius:42},lamps:[{x:925,y:690},{x:1122,y:690},{x:925,y:873},{x:1122,y:873}]},equipmentLabels:{workshop:{x:1214,y:542},studio:{x:1214,y:1339}},zoneCenters:ZONE_CENTERS,...registerResidentAssets(scene,agents)};}
+export {FURNITURE_ATLAS_KEY};
+export function preloadTownAssets(scene){if(scene?.load&&!scene.textures.exists(FURNITURE_ATLAS_KEY))scene.load.image(FURNITURE_ATLAS_KEY,FURNITURE_ATLAS_URL);}
+// Slice and trim each 256px atlas tile once. A tile that is not transparent (or an
+// unexpectedly sized image) is rejected so that object keeps its code-drawn art.
+function loadAtlas(scene){
+ try{
+  if(!scene.textures.exists(FURNITURE_ATLAS_KEY))return null;
+  const image=scene.textures.get(FURNITURE_ATLAS_KEY).getSourceImage();
+  if(!image||image.width<ATLAS_TILE*ATLAS_COLUMNS||image.height<ATLAS_TILE*ATLAS_ROWS)return null;
+  const scratch=cv(ATLAS_TILE,ATLAS_TILE),c=scratch.getContext('2d',{willReadFrequently:true}),metrics=new Map();
+  for(let row=0;row<ATLAS_ROWS;row++)for(let col=0;col<ATLAS_COLUMNS;col++){
+   c.clearRect(0,0,ATLAS_TILE,ATLAS_TILE);c.drawImage(image,col*ATLAS_TILE,row*ATLAS_TILE,ATLAS_TILE,ATLAS_TILE,0,0,ATLAS_TILE,ATLAS_TILE);
+   const bounds=alphaBounds(c.getImageData(0,0,ATLAS_TILE,ATLAS_TILE).data,ATLAS_TILE,ATLAS_TILE);
+   if(bounds&&bounds.opaque<.8&&bounds.w>16&&bounds.h>16)metrics.set(`${row},${col}`,bounds);
+  }
+  return metrics.size?{image,metrics}:null;
+ }catch{return null;}
+}
+function drawAtlasObject(scene,o,key,{image,metrics}){
+ const recipe=atlasRecipe(o);if(!recipe)return false;
+ const items=layoutSprites(o,recipe,tile=>metrics.get(tile));if(!items)return false;
+ const texture=cv((o.width+32)*2,(o.height+96)*2),c=texture.getContext('2d');c.scale(2,2);c.translate(16,72);c.imageSmoothingEnabled=true;c.imageSmoothingQuality='high';
+ for(const item of items){const b=metrics.get(item.key);c.drawImage(image,item.col*ATLAS_TILE+b.x,item.row*ATLAS_TILE+b.y,b.w,b.h,item.dx,item.dy,item.dw,item.dh);}
+ const added=scene.textures.addCanvas(key,texture);
+ // Smooth downscaling suits the painted atlas; the code-drawn pixel art stays nearest-neighbour.
+ try{const mode=globalThis.Phaser?.Textures?.FilterMode?.LINEAR;if(mode!==undefined)added?.setFilter(mode);}catch{/* Default filtering is acceptable. */}
+ return true;
+}
+export function registerTownAssets(scene,agents){if(!scene.textures.exists(BACKGROUND_KEY)){const texture=cv(WORLD_SIZE.width,WORLD_SIZE.height);ground(texture.getContext('2d'));detailGround(texture.getContext('2d'),MAP_TILES,MAP_ROOMS);scene.textures.addCanvas(BACKGROUND_KEY,texture);}let foreground=scene.registry.get('town-art-foreground-v8');if(!foreground){foreground=[...wallLayers(scene),...nameplateLayers(scene)];const atlas=loadAtlas(scene);for(const o of MAP_OBJECTS){const depth=o.y+o.height+(o.passable?-18:0),key=`town-object-v8-${o.id}`;
+  // Furniture from the bitmap atlas is rendered at 2x and shown at half scale; code-drawn art is the fallback.
+  const sprites=atlas&&drawAtlasObject(scene,o,key,atlas);if(sprites){foreground.push({x:o.x-16,y:o.y-72,key,depth,scale:.5});continue;}
+  const texture=cv(o.width+32,o.height+96),c=texture.getContext('2d');c.imageSmoothingEnabled=false;c.translate(16,72);furniture(c,o);detailFurniture(c,o);scene.textures.addCanvas(key,texture);foreground.push({x:o.x-16,y:o.y-72,key,depth});}scene.registry.set('town-art-foreground-v8',foreground);}return{backgroundKey:BACKGROUND_KEY,backgroundSize:WORLD_SIZE,foreground,ambient:{fountain:{x:208,y:749,radius:42},lamps:[{x:925,y:690},{x:1122,y:690},{x:925,y:873},{x:1122,y:873}]},equipmentLabels:{workshop:{x:1214,y:542},studio:{x:1214,y:1339}},zoneCenters:ZONE_CENTERS,...registerResidentAssets(scene,agents)};}

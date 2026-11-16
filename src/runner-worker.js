@@ -9,6 +9,7 @@ self.onmessage = event => {
     if (data.type === 'compare') {
       self.postMessage({ type: 'result', pair: comparePair(data.seed, data.capacity) });
     } else if (data.type === 'finish') {
+      if (data.state.config.policy !== 'rules-demo-v1') throw new Error('LLM 場次請從生活介面逐步執行，不能用離線策略補齊。');
       let state = data.state; const frames = [];
       while (state.tick < 120) {
         state = step(state, propose(state)); frames.push(viewFrame(state));
@@ -18,7 +19,7 @@ self.onmessage = event => {
     } else if (data.type === 'import') {
       const frames = [];
       const state = replayRun(data.data, s => frames.push(viewFrame(s)));
-      self.postMessage({ type: 'result', state, frames });
+      self.postMessage({ type: 'result', state, frames, audit: data.data.audit || null });
     }
   } catch (error) { self.postMessage({ type: 'error', message: error.message }); }
 };

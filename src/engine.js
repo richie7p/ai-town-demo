@@ -1,13 +1,14 @@
 import { VERSION, DAYS, TICKS_PER_DAY, ZONES, PERSONAS, ACTION_NAMES, hash, shuffled, pairKey, dayOf } from './config.js';
 import { observe } from './memory.js';
 
-export function createWorld({ seed = 20261103, capacity = 2 } = {}) {
+export function createWorld({ seed = 20261103, capacity = 2, policy = 'rules-demo-v1' } = {}) {
   if (!Number.isSafeInteger(seed) || seed < 0 || seed > 999999999) throw new Error('種子須為 0–999999999 的整數');
   if (![2, 3, 8].includes(capacity)) throw new Error('設備數須為 2、3 或 8');
+  if (!['rules-demo-v1', 'llm-responses-v1'].includes(policy)) throw new Error('不支援的決策模式');
   const personas = shuffled(PERSONAS, `${seed}:personas`);
   const locations = shuffled(['home', 'home', 'plaza', 'plaza', 'workshop', 'workshop', 'studio', 'studio'], `${seed}:locations`);
   return {
-    version: VERSION, config: { seed, capacity, days: DAYS, ticksPerDay: TICKS_PER_DAY, policy: 'rules-demo-v1' }, tick: 0,
+    version: VERSION, config: { seed, capacity, days: DAYS, ticksPerDay: TICKS_PER_DAY, policy }, tick: 0,
     agents: personas.map((p, i) => ({ ...p, id: `A0${i + 1}`, zone: locations[i] })),
     equipment: ['workshop', 'studio'].flatMap(zone => Array.from({ length: capacity }, (_, i) => ({ id: `${ZONES[zone].resource}-${i + 1}`, type: ZONES[zone].resource, zone, owner: null, usableFrom: null, until: null }))),
     conversations: [], messages: [], invitations: [], events: [], trace: [], lastPairTick: {},

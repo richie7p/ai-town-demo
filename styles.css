@@ -113,6 +113,19 @@ h1>span {font-weight:500}
 .timeline {display:flex;align-items:center;gap:10px;padding:7px 14px 12px;background:#f6f8f2;font-size:9px;color:#7d8d76;font-variant-numeric:tabular-nums}
 .timeline>span {white-space:nowrap}
 .timeline input {width:100%;min-width:30px;height:4px;accent-color:var(--moss);cursor:pointer}
+.decision-bar {padding:11px 14px 13px;background:#eef3e7;border-top:1px solid #dbe4d0;font-size:11px;color:var(--ink)}
+.decision-bar[hidden],.decision-bar progress[hidden],#llm-settings[hidden],.decision-error[hidden],#decision-retry[hidden] {display:none}
+.decision-row {display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+.decision-row strong {font-size:12px;color:var(--forest)}
+.decision-usage {font-size:10px;color:#6c8070;font-variant-numeric:tabular-nums}
+.decision-bar progress {display:block;width:100%;height:6px;margin-top:8px;accent-color:var(--moss)}
+.decision-error {display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:9px;padding:9px 11px;background:#fbefe6;border:1px solid #e2bfa3;border-radius:7px;color:#7d4a2e;line-height:1.7}
+.decision-error button {font-size:10px;padding:7px 10px;border-color:#c99a76;background:#fff8f1;color:#7d4a2e}
+.decision-note {margin:8px 0 0;font-size:9px;line-height:1.8;color:#7f9183}
+.public-reason {font-size:11px;line-height:1.8;margin:0 0 10px;padding:9px 11px;background:#f6f1e1;border-left:2px solid #d3b86e;border-radius:0 6px 6px 0}
+.public-reason b {display:block;font-size:9px;color:#9a8650;margin-bottom:3px}
+.memory-chip {display:block;width:100%;text-align:left;font-size:10px;line-height:1.7;font-weight:400;padding:7px 9px;margin-bottom:6px;background:#fafbf5;border:1px solid #e1e8d8;border-left:3px solid var(--moss);border-radius:6px}
+#llm-settings small {display:block;margin-top:7px;font-size:10px;line-height:1.7;color:#7c8b6e}
 .residents-heading {grid-column:1;grid-row:1;display:flex;align-items:center;justify-content:center;margin:0;height:36px}
 .residents-heading h2 {font-size:11px;margin:0;font-weight:700;color:#5f7760}
 .residents-heading h2>span {font-size:10px;color:#95a589;margin-left:5px;font-weight:500}
