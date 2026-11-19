@@ -212,6 +212,7 @@ def install():
 
   table = dict(FAKES)
   table.update({name: _text for name in TEXT_ONLY})
+  uninstall()
   replaced = 0
   for mod in list(sys.modules.values()):
     if mod is None or not getattr(mod, "__name__", "").startswith(("persona", "reverie", "__main__")):
@@ -220,6 +221,7 @@ def install():
       if attr.startswith("run_gpt_"):
         key = attr.removeprefix("run_gpt_prompt_").removeprefix("run_gpt_")
         if key in table:
+          _originals.append((mod, attr, getattr(mod, attr)))
           setattr(mod, attr, llm.tag_task(_named(table[key], attr)))
           replaced += 1
   missing = [n for n in dir(rgp) if n.startswith("run_gpt_")
@@ -235,10 +237,23 @@ def install():
       return [rng.random() - 0.5 for _ in range(self.embed_dimensions or 1536)]
 
     def complete(self, prompt, **kwargs):
+      # Only the daily identity update calls the model directly (plan.py).
+      if llm._current_task.get() == "revise_identity":
+        return "Status: continuing the usual routine and keeping in touch with neighbors."
       raise AssertionError(f"unexpected model call in fake mode: {prompt[:80]!r}")
 
   llm.set_llm(_FakeEmbedLLM(client=object()))
   return replaced
+
+
+_originals: list = []
+
+
+def uninstall():
+  """Put the real prompt functions back (used by tests)."""
+  while _originals:
+    mod, attr, fn = _originals.pop()
+    setattr(mod, attr, fn)
 
 
 def _named(fn, name):

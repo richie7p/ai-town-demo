@@ -43,6 +43,7 @@ COGNITION_TASKS = {
   "create_conversation", "agent_chat", "generate_next_convo_line",
   "generate_iterative_chat_utt", "focal_pt", "insight_and_guidance",
   "planning_thought_on_convo", "memo_on_convo", "summarize_conversation",
+  "revise_identity",
 }
 
 COMPLETION_INSTRUCTIONS = (

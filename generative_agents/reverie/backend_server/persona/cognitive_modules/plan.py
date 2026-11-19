@@ -15,6 +15,7 @@ from global_methods import *
 from persona.prompt_template.run_gpt_prompt import *
 from persona.cognitive_modules.retrieve import *
 from persona.cognitive_modules.converse import *
+from llm import tag_task as _llm_tag_task
 
 ##############################################################################
 # CHAPTER 2: Generate
@@ -405,6 +406,9 @@ def generate_new_decomp_schedule(persona, inserted_act, inserted_act_dur,  start
 # CHAPTER 3: Plan
 ##############################################################################
 
+# Modified: tagged so llm.py treats the daily identity update as a
+# cognition task (it calls the model directly, not via run_gpt_prompt).
+@_llm_tag_task
 def revise_identity(persona): 
   p_name = persona.scratch.name
 

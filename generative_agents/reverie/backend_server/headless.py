@@ -279,8 +279,11 @@ class HeadlessSimulation:
           print(f"[{s['sim_time']}] step {s['step']} day {s['sim_day']} | "
                 f"calls {s['llm']['calls']} | ${s['llm']['cost_usd']:.2f} | "
                 f"wall {s['wall_seconds'] / 3600:.2f} h", flush=True)
-      # Only reached between steps, so the state is consistent.
-      self.checkpoint()
+      # Only reached between steps, so the state is consistent. Nothing to
+      # save if no step ran (the original save() cannot store a persona that
+      # has never moved, and the files on disk are already current).
+      if steps_done:
+        self.checkpoint()
       self.write_status(time.monotonic() - started, state, until_day)
     except BaseException as exc:
       # A step failed half-way: its state is inconsistent, so it is NOT saved.
