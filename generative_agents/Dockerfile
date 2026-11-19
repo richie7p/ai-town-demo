@@ -2,7 +2,11 @@
 # VM; see deploy/gcp/README.md. The image contains no API key.
 FROM gcr.io/google.com/cloudsdktool/google-cloud-cli:slim
 
-RUN python3 -m venv /opt/venv
+# The slim gcloud image only bundles a private Python for gcloud itself.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends python3 python3-venv \
+ && rm -rf /var/lib/apt/lists/* \
+ && python3 -m venv /opt/venv
 COPY reverie/requirements-sim.txt /tmp/requirements-sim.txt
 RUN /opt/venv/bin/pip install --no-cache-dir -r /tmp/requirements-sim.txt
 
