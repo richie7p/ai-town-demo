@@ -1,0 +1,36 @@
+{
+  "fork_sim_code": "base_the_ville_tw12",
+  "start_date": "March 01, 2027",
+  "curr_time": "March 01, 2027, 00:00:00",
+  "sec_per_step": 10,
+  "maze_name": "the_ville_tw",
+  "persona_names": [
+    "陳建國",
+    "陳美玲",
+    "陳宇翔",
+    "吳家豪",
+    "吳怡君",
+    "張福來",
+    "張秀琴",
+    "黃詩涵",
+    "李佳穎",
+    "周子豪",
+    "蔡依婷",
+    "林志明"
+  ],
+  "step": 0,
+  "sprites": {
+    "陳建國": "John_Lin",
+    "陳美玲": "Mei_Lin",
+    "陳宇翔": "Eddy_Lin",
+    "吳家豪": "Tom_Moreno",
+    "吳怡君": "Jane_Moreno",
+    "張福來": "Sam_Moore",
+    "張秀琴": "Jennifer_Moore",
+    "黃詩涵": "Tamara_Taylor",
+    "李佳穎": "Carmen_Ortiz",
+    "周子豪": "Latoya_Williams",
+    "蔡依婷": "Rajiv_Patel",
+    "林志明": "Isabella_Rodriguez"
+  }
+}

@@ -74,8 +74,10 @@ def action_sector(action_description, persona, maze, test_input=None, verbose=Fa
   home = persona.scratch.living_area.split(":")[1]
   if any(w in action_description for w in ("sleep", "bed", "home", "breakfast", "dinner", "routine")):
     return home, []
+  # Same house rule as the real prompt: "<...>'s house" only for that family.
   sectors = [x for x in _split(persona.s_mem.get_str_accessible_sectors(world))
-             if _split(persona.s_mem.get_str_accessible_sector_arenas(f"{world}:{x}"))]
+             if _split(persona.s_mem.get_str_accessible_sector_arenas(f"{world}:{x}"))
+             and ("'s house" not in x or persona.scratch.last_name in x)]
   return (_choice(sectors) if sectors else home), []
 
 

@@ -6,6 +6,7 @@ import os
 import shutil
 
 import pytest
+from types import SimpleNamespace
 
 import headless
 import llm
@@ -81,3 +82,29 @@ def test_stop_file_and_budget(storage, tmp_path):
   sim = headless.HeadlessSimulation("s", workers=4)
   llm.get_llm().usage.cost_usd = 5.0
   assert sim.run(1, 50, max_cost=1.0, stop_file=str(stop), max_steps=10) == "budget_reached"
+
+
+TW12 = os.path.join(os.path.dirname(headless.__file__), "..", "..", "environment",
+                    "frontend_server", "storage", "base_the_ville_tw12")
+
+
+def test_twelve_resident_town_runs(storage):
+  shutil.copytree(TW12, storage / "base_the_ville_tw12")
+  sim = headless.HeadlessSimulation("tw", fork="base_the_ville_tw12", workers=12)
+  assert len(sim.personas) == 12 and sim.maze.maze_name == "the_ville_tw"
+  assert sim.run(1, 1000, None, None, max_steps=300) == "paused"
+  for name, p in sim.personas.items():
+    home = p.scratch.living_area.split(":")[1]
+    assert "'s house" not in home or p.scratch.last_name in home, name
+
+
+def test_importance_scores_are_cached_per_persona(storage, monkeypatch):
+  from persona.cognitive_modules import perceive
+  calls = []
+  monkeypatch.setattr(perceive, "run_gpt_prompt_event_poignancy",
+                      lambda persona, desc: calls.append(desc) or (5, []))
+  a, b = SimpleNamespace(), SimpleNamespace()
+  for persona in (a, a, b):
+    assert perceive.generate_poig_score(persona, "event", "bed is being used") == 5
+  assert perceive.generate_poig_score(a, "event", "desk is idle") == 1   # original shortcut
+  assert calls == ["bed is being used", "bed is being used"]            # once per persona

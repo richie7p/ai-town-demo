@@ -16,13 +16,14 @@ gc artifacts repositories describe "$REPO" --location="$REGION" >/dev/null 2>&1 
 gc iam service-accounts describe "$SA_EMAIL" >/dev/null 2>&1 \
   || gc iam service-accounts create "$SA_NAME" --display-name="Generative Agents simulation"
 
-if ! gc secrets describe openai-api-key >/dev/null 2>&1; then
-  read -r -s -p "Paste your OpenAI API key (input hidden): " KEY; echo
-  printf '%s' "$KEY" | gc secrets create openai-api-key --data-file=- --replication-policy=automatic
+SECRET="${OPENAI_SECRET:-openai-api-key}"
+if ! gc secrets describe "$SECRET" >/dev/null 2>&1; then
+  read -r -s -p "貼上 API Key（存成 Secret Manager 的 $SECRET，輸入不會顯示）: " KEY; echo
+  printf '%s' "$KEY" | gc secrets create "$SECRET" --data-file=- --replication-policy=automatic
   unset KEY
 fi
 
-gc secrets add-iam-policy-binding openai-api-key \
+gc secrets add-iam-policy-binding "$SECRET" \
   --member="serviceAccount:$SA_EMAIL" --role=roles/secretmanager.secretAccessor >/dev/null
 gc storage buckets add-iam-policy-binding "gs://$BUCKET" \
   --member="serviceAccount:$SA_EMAIL" --role=roles/storage.objectAdmin >/dev/null

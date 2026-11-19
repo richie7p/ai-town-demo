@@ -7,11 +7,7 @@ IMAGE="${1:-$(cat "$HERE/.last_image" 2>/dev/null || true)}"
 
 ENV_FILE="$(mktemp)"
 trap 'rm -f "$ENV_FILE"' EXIT
-for var in SIM FORK DAYS BUCKET MAX_COST WORKERS CHECKPOINT_EVERY FAKE_LLM \
-           GA_MODEL GA_REASONING_HIGH GA_REASONING_LOW GA_SERVICE_TIER \
-           GA_EMBED_MODEL GA_EMBED_DIMENSIONS; do
-  echo "$var=${!var:-}" >> "$ENV_FILE"
-done
+write_sim_env "$ENV_FILE"
 
 gc compute instances create "$VM_NAME" --zone="$ZONE" \
   --machine-type="$MACHINE_TYPE" \

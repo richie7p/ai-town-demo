@@ -12,7 +12,8 @@ RUN /opt/venv/bin/pip install --no-cache-dir -r /tmp/requirements-sim.txt
 
 WORKDIR /app
 COPY reverie /app/reverie
-COPY environment/frontend_server/static_dirs/assets/the_ville/matrix /app/assets/the_ville/matrix
+# Map data for every map (the art itself is excluded by .dockerignore).
+COPY environment/frontend_server/static_dirs/assets /app/assets
 COPY environment/frontend_server/storage /app/base_storage
 COPY deploy/gcp/entrypoint.sh /app/entrypoint.sh
 

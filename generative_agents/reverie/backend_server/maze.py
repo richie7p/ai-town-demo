@@ -6,6 +6,7 @@ Description: Defines the Maze class, which represents the map of the simulated
 world in a 2-dimensional matrix. 
 """
 import json
+import os
 import numpy
 import datetime
 import pickle
@@ -15,10 +16,18 @@ import math
 from global_methods import *
 from utils import *
 
+def _matrix_folder(maze_name):
+  own = os.path.join(maze_assets_loc, maze_name, "matrix")
+  return own if os.path.isdir(own) else globals()["env_matrix"]
+
+
 class Maze: 
   def __init__(self, maze_name): 
     # READING IN THE BASIC META INFORMATION ABOUT THE MAP
     self.maze_name = maze_name
+    # Modified: each map has its own matrix folder (assets/<maze_name>/matrix),
+    # so a renamed copy such as "the_ville_tw" can live next to the original.
+    env_matrix = _matrix_folder(maze_name)
     # Reading in the meta information about the world. If you want tp see the
     # example variables, check out the maze_meta_info.json file. 
     meta_info = json.load(open(f"{env_matrix}/maze_meta_info.json"))

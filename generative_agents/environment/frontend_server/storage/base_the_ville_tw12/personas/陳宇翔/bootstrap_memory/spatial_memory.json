@@ -1,0 +1,89 @@
+{
+  "the Ville": {
+    "Hobbs Cafe": {
+      "cafe": [
+        "refrigerator",
+        "cooking area",
+        "kitchen sink",
+        "behind the cafe counter",
+        "cafe customer seating",
+        "piano"
+      ]
+    },
+    "Oak Hill College": {
+      "classroom": [
+        "blackboard",
+        "classroom student seating",
+        "classroom podium"
+      ],
+      "library": [
+        "library sofa",
+        "bookshelf",
+        "library table"
+      ],
+      "hallway": []
+    },
+    "The Rose and Crown Pub": {
+      "pub": [
+        "refrigerator",
+        "behind the bar counter",
+        "kitchen sink",
+        "cooking area",
+        "bar customer seating",
+        "shelf",
+        "microphone"
+      ]
+    },
+    "Johnson Park": {
+      "park": [
+        "park garden"
+      ]
+    },
+    "Harvey Oak Supply Store": {
+      "supply store": [
+        "supply store product shelf",
+        "behind the supply store counter",
+        "supply store counter"
+      ]
+    },
+    "The Willows Market and Pharmacy": {
+      "store": [
+        "behind the grocery counter",
+        "pharmacy store shelf",
+        "grocery store counter",
+        "grocery store shelf",
+        "behind the pharmacy counter",
+        "pharmacy store counter"
+      ]
+    },
+    "Chen (陳) family's house": {
+      "common room": [
+        "shelf",
+        "common room table"
+      ],
+      "kitchen": [
+        "kitchen sink",
+        "cooking area",
+        "refrigerator"
+      ],
+      "bathroom": [
+        "toilet",
+        "bathroom sink",
+        "shower"
+      ],
+      "陳建國 and 陳美玲's bedroom": [
+        "closet",
+        "desk",
+        "bed"
+      ],
+      "陳宇翔's bedroom": [
+        "closet",
+        "bed",
+        "desk"
+      ],
+      "garden": [
+        "house garden"
+      ]
+    }
+  }
+}

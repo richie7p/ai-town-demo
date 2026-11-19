@@ -17,7 +17,14 @@ def generate_poig_score(persona, event_type, description):
     return 1
 
   if event_type == "event": 
-    return run_gpt_prompt_event_poignancy(persona, description)[0]
+    # Modified (economical mode): the same persona scoring the same event
+    # description again gets its previous score instead of a new model call.
+    # Repeats are very common ("bed is idle", "cafe customer seating is ...").
+    # Not persisted: after a resume the cache simply refills.
+    cache = persona.__dict__.setdefault("_poignancy_cache", {})
+    if description not in cache:
+      cache[description] = run_gpt_prompt_event_poignancy(persona, description)[0]
+    return cache[description]
   elif event_type == "chat": 
     return run_gpt_prompt_chat_poignancy(persona, 
                            persona.scratch.act_description)[0]
