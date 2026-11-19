@@ -74,10 +74,13 @@ python3 -m venv .venv
 cd reverie && ../.venv/bin/python -m pytest -q tests
 ```
 
-## 用 NVIDIA NIM 測試
+## 用 NVIDIA NIM 測試（4 人、正常流速）
 
-NIM 免費帳號每分鐘約只能呼叫 40 次，適合確認「整個模擬能正確跑」，
-但測不出 GPT-6 Luna 的速度與費用。
+測試用的是 **4 人小鎮**（`base_the_ville_tw4`）：林志明、李佳穎、周子豪、黃詩涵，
+都會在咖啡廳交會，從 **早上 7 點** 開始，預設 **時間流速和現實一樣**（模擬 1 分鐘 = 現實 1 分鐘）。
+
+用假答案實測：4 人一天平均每分鐘只需約 4 次呼叫；但起床排行程（7:00、8:00）和聊天時會短暫需要
+50～150 次，所以仍保留每分鐘最多 35 次的限速，尖峰會被分散開，小鎮時間短暫落後後再追上。
 
 1. 到 [build.nvidia.com](https://build.nvidia.com) 申請 API Key（`nvapi-` 開頭）。
 2. 設定金鑰：
@@ -86,16 +89,25 @@ NIM 免費帳號每分鐘約只能呼叫 40 次，適合確認「整個模擬能
 export NVIDIA_API_KEY=nvapi-你的金鑰
 ```
 
-3. 執行測試（預設跑到第 1 天早上 9 點，約 1～3 小時）：
+3. 執行（預設跑 7:00～13:00，正常流速約 6 小時；隨時可按 Ctrl+C 存檔停止）：
 
 ```bash
 generative_agents/scripts/run_nim_test.sh
 ```
 
-它會先呼叫一次模型與文字向量確認設定正確，再開始模擬，最後印出中文報告（對話內容、
-每位居民在做什麼、各類呼叫次數）。預設模型是 `meta/llama-3.3-70b-instruct`、
-文字向量是 `nvidia/nv-embedqa-e5-v5`；要換模型就先設定 `GA_MODEL`、`GA_EMBED_MODEL`
-（模型名稱請到 build.nvidia.com 確認）。
+| 想要 | 指令 |
+|---|---|
+| 只跑 1 個模擬小時 | `scripts/run_nim_test.sh 360` |
+| 快 10 倍 | `SPEED=10 scripts/run_nim_test.sh` |
+| 12 人、全速（受限速 35 次／分鐘） | `FORK=base_the_ville_tw12 SPEED= scripts/run_nim_test.sh` |
+
+它會先呼叫一次模型與文字向量確認設定正確，再開始模擬，最後印出中文報告。預設模型是
+`meta/llama-3.3-70b-instruct`、文字向量 `nvidia/nv-embedqa-e5-v5`；要換就先設定 `GA_MODEL`、
+`GA_EMBED_MODEL`（模型名稱請到 build.nvidia.com 確認）。中途停止後，用報告開頭顯示的模擬名稱
+接續：`cd reverie/backend_server && ../../.venv/bin/python headless.py --sim <名稱> --days 1 --speed 1`
+（記得同樣的 NIM 環境變數要先設定，可參考 `run_nim_test.sh` 開頭）。
+
+`headless.py` 的 `--speed` 參數：1 = 和現實一樣快，10 = 快 10 倍；不設定 = 能跑多快就跑多快。
 
 ## 用 GPT-6 Luna 在本機執行
 
@@ -126,6 +138,7 @@ generative_agents/.venv/bin/python generative_agents/scripts/summarize_run.py lu
 | `--days` | 跑到第幾個模擬天結束；之後用更大的數字執行同一個 `--sim` 就會接續 |
 | `--max-steps` | 這次最多跑幾步（360 步 = 1 個模擬小時） |
 | `--max-cost` | 花費上限（美元） |
+| `--speed` | 時間流速（1 = 現實速度）；不設定 = 全速 |
 | `--fake-llm` | 不呼叫 API 的空跑 |
 
 ## 部署到 Google Cloud

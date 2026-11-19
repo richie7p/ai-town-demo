@@ -1,0 +1,126 @@
+{
+  "the Ville": {
+    "artist's co-living space": {
+      "周子豪's room": [
+        "bed",
+        "closet",
+        "desk",
+        "shelf"
+      ],
+      "周子豪's bathroom": [
+        "shower",
+        "toilet",
+        "bathroom sink"
+      ],
+      "蔡依婷's room": [
+        "bed",
+        "closet",
+        "guitar",
+        "easel"
+      ],
+      "蔡依婷's bathroom": [
+        "shower",
+        "toilet",
+        "bathroom sink"
+      ],
+      "spare room A": [
+        "bed",
+        "closet",
+        "desk"
+      ],
+      "spare bathroom A": [
+        "bathroom sink",
+        "toilet",
+        "shower"
+      ],
+      "kitchen": [
+        "refrigerator",
+        "toaster",
+        "kitchen sink",
+        "cooking area"
+      ],
+      "common room": [
+        "common room table",
+        "common room sofa"
+      ],
+      "spare room B": [
+        "shelf",
+        "closet",
+        "easel",
+        "bed"
+      ],
+      "spare bathroom B": [
+        "toilet",
+        "bathroom sink",
+        "shower"
+      ],
+      "spare room C": [
+        "easel",
+        "closet",
+        "desk",
+        "bed"
+      ],
+      "spare bathroom C": [
+        "toilet",
+        "bathroom sink",
+        "shower"
+      ]
+    },
+    "Hobbs Cafe": {
+      "cafe": [
+        "refrigerator",
+        "cooking area",
+        "kitchen sink",
+        "behind the cafe counter",
+        "cafe customer seating",
+        "piano"
+      ]
+    },
+    "Oak Hill College": {
+      "classroom": [
+        "blackboard",
+        "classroom student seating",
+        "classroom podium"
+      ],
+      "library": [
+        "library sofa",
+        "bookshelf",
+        "library table"
+      ],
+      "hallway": []
+    },
+    "The Rose and Crown Pub": {
+      "pub": [
+        "refrigerator",
+        "behind the bar counter",
+        "kitchen sink",
+        "cooking area",
+        "bar customer seating",
+        "shelf",
+        "microphone"
+      ]
+    },
+    "Johnson Park": {
+      "park": [
+        "park garden"
+      ]
+    },
+    "Harvey Oak Supply Store": {
+      "supply store": [
+        "supply store product shelf",
+        "behind the supply store counter",
+        "supply store counter"
+      ]
+    },
+    "The Willows Market and Pharmacy": {
+      "store": [
+        "behind the grocery counter",
+        "pharmacy store shelf",
+        "grocery store counter",
+        "grocery store shelf",
+        "behind the pharmacy counter",
+        "pharmacy store counter"
+      ]
+    }
+  }
+}

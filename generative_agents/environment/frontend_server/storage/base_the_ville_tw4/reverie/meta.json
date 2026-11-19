@@ -1,0 +1,20 @@
+{
+  "fork_sim_code": "base_the_ville_tw4",
+  "start_date": "March 01, 2027",
+  "curr_time": "March 01, 2027, 07:00:00",
+  "sec_per_step": 10,
+  "maze_name": "the_ville_tw",
+  "persona_names": [
+    "黃詩涵",
+    "李佳穎",
+    "周子豪",
+    "林志明"
+  ],
+  "step": 0,
+  "sprites": {
+    "黃詩涵": "Tamara_Taylor",
+    "李佳穎": "Carmen_Ortiz",
+    "周子豪": "Latoya_Williams",
+    "林志明": "Isabella_Rodriguez"
+  }
+}

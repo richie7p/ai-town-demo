@@ -238,8 +238,19 @@ class HeadlessSimulation:
     return status
 
   # ------------------------------------------------------------------ main loop
+  def _pace(self, origin_wall: float, origin_sim, speed: float, stop_file):
+    """Wait until real time catches up with `speed` x simulated time. If the
+    model is slower than that, nothing waits: the run simply goes slower."""
+    target = origin_wall + (self.curr_time - origin_sim).total_seconds() / speed
+    while not self._stop_requested and not (stop_file and os.path.exists(stop_file)):
+      left = target - time.monotonic()
+      if left <= 0:
+        return
+      time.sleep(min(left, 1.0))
+
   def run(self, until_day: int, checkpoint_every: int, max_cost: float | None,
-          stop_file: str | None, max_steps: int | None = None):
+          stop_file: str | None, max_steps: int | None = None,
+          speed: float | None = None):
     def request_stop(signum, _frame):
       print(f"Signal {signum}: finishing the current step, then checkpointing.", flush=True)
       self._stop_requested = True
@@ -247,6 +258,7 @@ class HeadlessSimulation:
     signal.signal(signal.SIGINT, request_stop)
 
     started = time.monotonic()
+    origin_sim = self.curr_time
     steps_done = 0
     state = "running"
     print(f"{'Resuming' if self.resumed else 'Starting'} {self.sim_code} at step {self.step} "
@@ -271,6 +283,8 @@ class HeadlessSimulation:
         day_before = self._day_index()
         self.step_once()
         steps_done += 1
+        if speed:
+          self._pace(started, origin_sim, speed, stop_file)
         if self._day_index() != day_before:
           self._compress_finished_days()
         if self.step % checkpoint_every == 0:
@@ -324,6 +338,8 @@ def main(argv=None):
   ap.add_argument("--max-cost", type=float, default=None, help="stop once this many USD are spent")
   ap.add_argument("--max-steps", type=int, default=None, help="stop after this many steps")
   ap.add_argument("--stop-file", default=None, help="stop gracefully when this file appears")
+  ap.add_argument("--speed", type=float, default=None,
+                  help="simulated seconds per real second (1 = real time); default: as fast as possible")
   ap.add_argument("--fake-llm", action="store_true",
                   help="no API calls: canned answers (dry run / tests, costs nothing)")
   args = ap.parse_args(argv)
@@ -335,7 +351,8 @@ def main(argv=None):
     fake_cognition.install()
   silence_original_prints()
   sim = HeadlessSimulation(args.sim, args.fork, workers=args.workers)
-  state = sim.run(args.days, args.checkpoint_every, args.max_cost, args.stop_file, args.max_steps)
+  state = sim.run(args.days, args.checkpoint_every, args.max_cost, args.stop_file, args.max_steps,
+                  speed=args.speed)
   return 0 if state in ("finished", "paused", "stopped", "budget_reached") else 1
 
 

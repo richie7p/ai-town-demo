@@ -1,8 +1,9 @@
 """
-Builds the 12-resident base simulation `base_the_ville_tw12` and its map copy
+Builds the 12-resident base simulation `base_the_ville_tw12`, a 4-resident
+test base `base_the_ville_tw4` (for NVIDIA NIM's free tier), and their map copy
 `the_ville_tw` (the original map with homes renamed for the new residents).
 
-  python scripts/build_tw12.py            # (re)generates both folders
+  python scripts/build_tw12.py            # (re)generates all three
 
 The original map and the 25-person base are not modified. Character sheets
 are written in English with Chinese names: they are inserted into the
@@ -176,14 +177,27 @@ def build_tree(maze, sectors):
   return tree
 
 
-def build_base():
+# 4-resident test town: the people who meet at Hobbs Cafe. Sentences that
+# mention residents who are not in this town are rewritten.
+TW4 = ["林志明", "李佳穎", "周子豪", "黃詩涵"]
+TW4_OVERRIDES = {
+  "黃詩涵": {
+    "learned": "黃詩涵 works as a pharmacy clerk at The Willows Market and Pharmacy. She shares a house with her close friend 李佳穎.",
+  },
+  "周子豪": {
+    "learned": "周子豪 is a painter who lives in the artist's co-living space. He likes to sketch people at Hobbs Cafe.",
+  },
+}
+
+
+def build_base(base_name=NEW_BASE, only=None, overrides=None, start_clock="00:00:00"):
   sys.path.insert(0, os.path.join(ROOT, "reverie", "backend_server"))
   os.environ.setdefault("GA_ASSETS", ASSETS)
   from maze import Maze  # noqa: E402  (needs the renamed map on disk)
 
   maze = Maze(NEW_MAP)
   src_base = os.path.join(STORAGE, SRC_BASE)
-  base = os.path.join(STORAGE, NEW_BASE)
+  base = os.path.join(STORAGE, base_name)
   if os.path.isdir(base):
     shutil.rmtree(base)
   for sub in ("reverie", "environment", "personas", "movement"):
@@ -194,6 +208,10 @@ def build_base():
   env, sprites, names = {}, {}, []
   for (name, first, last, age, sector, arena, original, innate, learned, currently,
        lifestyle, daily_req) in RESIDENTS:
+    if only and name not in only:
+      continue
+    learned = (overrides or {}).get(name, {}).get("learned", learned)
+    currently = (overrides or {}).get(name, {}).get("currently", currently)
     names.append(name)
     living = f"the Ville:{sector}:{arena}"
     assert f"the Ville:{sector}:{arena}" in maze.address_tiles, living
@@ -221,7 +239,7 @@ def build_base():
       with open(os.path.join(am, fname), "w", encoding="utf-8") as fh:
         json.dump(data, fh)
 
-  meta = {"fork_sim_code": NEW_BASE, "start_date": START, "curr_time": f"{START}, 00:00:00",
+  meta = {"fork_sim_code": base_name, "start_date": START, "curr_time": f"{START}, {start_clock}",
           "sec_per_step": 10, "maze_name": NEW_MAP, "persona_names": names, "step": 0,
           "sprites": sprites}
   with open(os.path.join(base, "reverie", "meta.json"), "w", encoding="utf-8") as fh:
@@ -234,3 +252,5 @@ def build_base():
 if __name__ == "__main__":
   rename_map()
   build_base()
+  # Starts at 7am so a real-time test shows people waking up and meeting right away.
+  build_base("base_the_ville_tw4", only=TW4, overrides=TW4_OVERRIDES, start_clock="07:00:00")

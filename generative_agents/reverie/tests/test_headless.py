@@ -108,3 +108,18 @@ def test_importance_scores_are_cached_per_persona(storage, monkeypatch):
     assert perceive.generate_poig_score(persona, "event", "bed is being used") == 5
   assert perceive.generate_poig_score(a, "event", "desk is idle") == 1   # original shortcut
   assert calls == ["bed is being used", "bed is being used"]            # once per persona
+
+
+TW4 = os.path.join(os.path.dirname(headless.__file__), "..", "..", "environment",
+                   "frontend_server", "storage", "base_the_ville_tw4")
+
+
+def test_four_resident_town_runs_at_a_set_speed(storage):
+  import time
+  shutil.copytree(TW4, storage / "base_the_ville_tw4")
+  sim = headless.HeadlessSimulation("t4", fork="base_the_ville_tw4", workers=4)
+  assert len(sim.personas) == 4 and sim.curr_time.hour == 7
+  started = time.monotonic()
+  # 30 steps x 10 simulated seconds at 600x real time = at least 0.5 s
+  assert sim.run(1, 1000, None, None, max_steps=30, speed=600) == "paused"
+  assert time.monotonic() - started >= 0.5
