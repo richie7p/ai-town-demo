@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>AI 小鎮專題：進度與交接說明</title>
+<style>
+  @page { size: A4; margin: 16mm 15mm 18mm 15mm; }
+  :root { --ink:#1f2328; --muted:#5d6670; --line:#d8dde3; --accent:#2f6f57; --soft:#eef5f1; --warn:#9a3412; --warnbg:#fff4ec; }
+  * { box-sizing: border-box; }
+  body { font-family: "WenQuanYi Zen Hei", "Noto Sans CJK TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
+         color: var(--ink); font-size: 10.2pt; line-height: 1.6; margin: 0; }
+  h1 { font-size: 20pt; margin: 0 0 4px; color: var(--accent); }
+  .sub { color: var(--muted); margin-bottom: 14px; }
+  h2 { font-size: 13.5pt; margin: 20px 0 8px; padding-bottom: 4px; border-bottom: 2px solid var(--accent); break-after: avoid; }
+  h3 { font-size: 11pt; margin: 14px 0 6px; break-after: avoid; }
+  p { margin: 5px 0; }
+  ul, ol { margin: 4px 0 6px; padding-left: 20px; }
+  li { margin: 2px 0; }
+  code { font-family: "WenQuanYi Zen Hei Mono", monospace; background: #f3f4f6; padding: 0 3px; border-radius: 3px; font-size: 9.2pt; }
+  pre { font-family: "WenQuanYi Zen Hei Mono", monospace; background: #f6f8fa; border: 1px solid var(--line);
+        border-radius: 6px; padding: 7px 9px; font-size: 8.8pt; line-height: 1.45; white-space: pre-wrap; word-break: break-all; margin: 6px 0; break-inside: avoid; }
+  table { width: 100%; border-collapse: collapse; margin: 6px 0 10px; font-size: 9.2pt; break-inside: auto; }
+  th, td { border: 1px solid var(--line); padding: 4px 6px; vertical-align: top; text-align: left; }
+  th { background: var(--soft); }
+  tr { break-inside: avoid; }
+  thead { display: table-header-group; }
+  h3 + table, h2 + table { break-before: avoid; }
+  .box { border-left: 4px solid var(--accent); background: var(--soft); padding: 7px 10px; margin: 8px 0; border-radius: 0 6px 6px 0; break-inside: avoid; }
+  .warn { border-left-color: var(--warn); background: var(--warnbg); }
+  .tag { display: inline-block; font-size: 8.5pt; padding: 0 6px; border-radius: 8px; background: #e7ecf0; color: #334; }
+  .ok { background: #dcf3e5; color: #1d5b3a; } .no { background: #fde2d6; color: #8a2c0d; } .mid { background: #fff0c2; color: #6b4e00; }
+  .small { font-size: 8.8pt; color: var(--muted); }
+  .pb { break-before: page; }
+</style>
+</head>
+<body>
+
+<h1>AI 小鎮專題：Generative Agents 修改版</h1>
+<div class="sub">目前進度與交接說明（給 Codex 與專案成員）　｜　2026 年 11 月 19 日　｜　撰寫：Claude Code</div>
+
+<div class="box">
+<b>一句話摘要：</b>原版 Stanford Generative Agents 已改成可用 GPT-6 Luna（或 NVIDIA NIM）無人值守長時間執行、可部署到 Google Cloud 的版本，並建好 12 人與 4 人的新小鎮。<b>所有功能都已用「假模型回答」離線驗證，但還沒有用真正的 API 跑過。</b>下一步是：本機用 NIM 測 4 人小鎮 → 用 Luna 試跑並量出實際費用與速度 → 部署 Google Cloud 跑正式實驗。
+</div>
+
+<h2>1. 專案目標與限制</h2>
+<table>
+<thead><tr><th style="width:24%">項目</th><th>內容</th></tr></thead>
+<tr><td>性質</td><td>大學專題，目標投稿研討會。可用 6 個月，預計 2 個月內完成主要工作。</td></tr>
+<tr><td>主實驗</td><td>12 位居民、50 個模擬天、GPT-6 Luna「省錢版」設定，在 Google Cloud 上約 5 倍速執行（約 10 個現實天）。</td></tr>
+<tr><td>研究方向（暫定）</td><td>「生成式代理人的長期行為」：原論文只跑 2 天，本研究觀察 50 天後人設是否一致、行為是否重複、關係網路與消息傳播如何演變。領域預設為人機互動（原論文發表於 UIST 2023），待指導老師確認。</td></tr>
+<tr><td>預算</td><td>OpenAI API 約 130 美元；Google Cloud 額度約 9,000 美元；另有新台幣 3,000 元備用。</td></tr>
+<tr><td>語言</td><td>與使用者溝通一律用繁體中文。模擬中的對話、想法、反思、每日近況用繁體中文；動作描述維持英文（原版程式依賴英文關鍵字）。</td></tr>
+</table>
+
+<h2>2. 程式碼位置</h2>
+<table>
+<thead><tr><th style="width:30%">項目</th><th>說明</th></tr></thead>
+<tr><td>Repo</td><td><code>richie7p/ai-town-demo</code></td></tr>
+<tr><td><b>最新分支（請用這個）</b></td><td><code>claude/nim-4-agents</code>（commit <code>d738eb8</code>）。包含下面分支的全部內容，再加上 4 人小鎮與 <code>--speed</code>。</td></tr>
+<tr><td>前一個分支</td><td><code>claude/adoring-hamilton-q0tust</code>（commit <code>e5dc9c8</code>）：12 人小鎮與所有核心修改。</td></tr>
+<tr><td><code>main</code></td><td><b>不包含</b>這些成果（main 上的 <code>e701dad</code> 是舊版小鎮的另一個更新）。合併前請先開 PR 讓使用者確認。</td></tr>
+<tr><td>主要資料夾</td><td><code>generative_agents/</code>（原版修改版）。repo 根目錄另有舊版 v0.9 小鎮與 <code>v6/</code>（另一個自製 DEMO，與本研究無關）。</td></tr>
+<tr><td>中文說明</td><td><code>generative_agents/README.zh-TW.md</code>（操作步驟最完整）、<code>generative_agents/NOTICE.md</code>（所有修改清單與原作者、美術授權）。</td></tr>
+</table>
+
+<h3>generative_agents/ 重要檔案</h3>
+<table>
+<thead><tr><th style="width:44%">路徑</th><th>用途</th></tr></thead>
+<tr><td><code>reverie/backend_server/llm.py</code></td><td>所有模型呼叫：OpenAI Responses API（Luna）或 Chat Completions（NIM 等）、思考程度、重試、限速、花費紀錄、中文指示</td></tr>
+<tr><td><code>reverie/backend_server/headless.py</code></td><td>無畫面執行器：平行、存檔、接續、花費上限、<code>--speed</code>、停止檔</td></tr>
+<tr><td><code>reverie/backend_server/parallel_step.py</code></td><td>每一步讓所有居民平行思考，對話衝突依原順序處理</td></tr>
+<tr><td><code>reverie/backend_server/fake_cognition.py</code></td><td>34 個提示詞函式的假回答，用於測試與免費空跑（<code>--fake-llm</code>）</td></tr>
+<tr><td><code>persona/memory_structures/embedding_store.py</code></td><td>記憶向量改用 NumPy 儲存與一次計算</td></tr>
+<tr><td><code>scripts/build_tw12.py</code></td><td><b>12 人與 4 人小鎮、the_ville_tw 地圖的唯一來源</b>，改人物請改這裡再重新執行</td></tr>
+<tr><td><code>scripts/check_api.py</code>、<code>run_nim_test.sh</code>、<code>summarize_run.py</code></td><td>API 設定檢查、NIM 測試、中文結果報告</td></tr>
+<tr><td><code>deploy/gcp/</code>、<code>Dockerfile</code></td><td>Google Cloud 部署（設定檔範例 <code>config.env.example</code>）</td></tr>
+<tr><td><code>reverie/tests/</code></td><td>19 項自動測試</td></tr>
+</table>
+
+<h2>3. 已完成的工作</h2>
+<table>
+<thead><tr><th style="width:26%">功能</th><th>內容</th><th style="width:20%">驗證狀態</th></tr></thead>
+<tr><td>模型層</td><td>改用 <code>gpt-6-luna</code>；依提示詞類型設定思考程度；呼叫失敗自動重試；金鑰錯誤等致命錯誤會立即停止整個模擬（不會被原版的 except 吞掉）；每次呼叫記錄 token 與花費到 <code>usage.jsonl</code>。</td><td><span class="tag ok">單元測試通過</span><br><span class="tag mid">已用真實 SDK 模擬傳輸測格式</span></td></tr>
+<tr><td>NIM 支援</td><td><code>GA_API=chat</code>、<code>GA_BASE_URL</code>、文字向量額外參數（<code>input_type</code>）、去除 <code>&lt;think&gt;</code> 標籤、<code>GA_MAX_RPM</code> 限速。</td><td><span class="tag ok">單元測試通過</span><br><span class="tag no">未連真正 NIM</span></td></tr>
+<tr><td>無畫面執行</td><td>不需瀏覽器；居民平行思考；每個模擬小時存檔；當機時不存半成品，從上一個存檔接續；移動紀錄每天一個壓縮檔。</td><td><span class="tag ok">假模型跑完 25 人 2 天，中途當機接續，步數無重複無缺漏</span></td></tr>
+<tr><td>記憶</td><td>向量存成 NumPy 矩陣（.npy），回想一次算完，公式與原版相同；舊 JSON 存檔仍可讀。</td><td><span class="tag ok">與原版公式比對一致</span></td></tr>
+<tr><td>省錢版</td><td>例行判斷思考 <code>none</code>、重要決策 <code>low</code>；同一居民遇到同樣事件只評一次重要性分數。</td><td><span class="tag ok">單元測試通過</span></td></tr>
+<tr><td>12 人小鎮</td><td><code>base_the_ville_tw12</code>，地圖 <code>the_ville_tw</code>：住家改成新居民名字，空屋上鎖。從 2027/3/1 00:00 開始。</td><td><span class="tag ok">假模型跑完 1 天，無人走錯房子</span></td></tr>
+<tr><td>4 人小鎮</td><td><code>base_the_ville_tw4</code>：林志明、李佳穎、周子豪、黃詩涵，從 07:00 開始，設定已移除不存在的人。</td><td><span class="tag ok">假模型跑完 1 天</span></td></tr>
+<tr><td>時間流速</td><td><code>--speed 1</code> = 與現實同速；模型較慢時自然變慢。</td><td><span class="tag ok">20 模擬分鐘 = 20 秒（60 倍速）</span></td></tr>
+<tr><td>Google Cloud</td><td>Container-Optimized OS 的 VM、永久磁碟、每小時備份到 Cloud Storage、金鑰放 Secret Manager、容器當機自動重啟並接續、<code>STOP</code> 檔優雅停止。</td><td><span class="tag ok">容器在本機建置與空跑、停止、接續成功</span><br><span class="tag no">未在真實 GCP 執行</span></td></tr>
+</table>
+
+<h2>4. 尚未驗證與已知限制（請特別注意）</h2>
+<ol>
+<li><b>從未呼叫過真正的 API。</b>所有費用、速度都是估算。真實模型可能不照原版要求的格式回答，造成較多重試或使用原版的備用答案。</li>
+<li><b>NIM 預設模型名稱未確認：</b><code>meta/llama-3.3-70b-instruct</code>、<code>nvidia/nv-embedqa-e5-v5</code> 是依網路資料選的範例，請到 build.nvidia.com 確認仍可用。NIM 免費帳號約每分鐘 40 次，僅適合功能測試。</li>
+<li><b>Luna 的 low 與 none 哪個便宜仍待實測：</b>Artificial Analysis 顯示 Luna Low 每任務 $0.0051、Non-reasoning $0.0714（low 更便宜也更快），但那是長答案的測驗；本模擬的例行判斷答案很短，需實測比較（見第 6 節）。</li>
+<li><b>估算的依據：</b>每日呼叫次數來自「假模型」跑原版 25 人一天（約 6.4 萬次）。假模型決定聊天的機率是固定 30%，真實對話次數可能不同。</li>
+<li><b>與原版的差異（論文需揭露）：</b>平行處理使同一步中所有人看到的是步驟開始時的狀態；重要性評分快取（接續後會重新累積）；模型與思考程度不同；對話改繁體中文。完整清單在 <code>NOTICE.md</code>。</li>
+<li><b>還沒有的東西：</b>讀取新格式 <code>movement_log</code> 的視覺化回放畫面；研究用分析工具（居民訪談、社交網路、消息傳播、人設一致性）；Vertex AI（Gemini）支援。</li>
+<li>原版地圖美術（PixyMoon、LimeZu）不在 repo 內，需要畫面時執行 <code>scripts/fetch_assets.sh</code> 下載，不可提交進 repo。</li>
+</ol>
+
+<h2>5. 費用估算（待實測修正）</h2>
+<table>
+<thead><tr><th>情境</th><th>API</th><th>Google Cloud</th><th>現實時間</th></tr></thead>
+<tr><td>12 人 × 50 天，省錢版</td><td>約 $95</td><td>約 $40</td><td>約 10 天（5 倍速）</td></tr>
+<tr><td>同上 + Flex 半價（較慢）</td><td>約 $50</td><td>約 $40</td><td>可能超過 10 天</td></tr>
+<tr><td>原版重現：25 人 × 2 天，省錢版</td><td>約 $10</td><td>約 $5–10</td><td>約 10–40 小時</td></tr>
+<tr><td>4 人 NIM 測試</td><td>免費</td><td>—</td><td>正常流速，7:00–13:00 約 6 小時</td></tr>
+</table>
+<p class="small">價格依 OpenAI 官方模型頁：gpt-6-luna 每百萬 token 輸入 $0.10、快取 $0.01、輸出 $0.50；text-embedding-3-small $0.02。e2-standard-4（台灣區）約每小時 $0.155。</p>
+
+<h2>6. 下一步規劃</h2>
+<table>
+<thead><tr><th style="width:12%">時間</th><th>工作</th><th style="width:20%">負責</th></tr></thead>
+<tr><td>第 1 週</td><td>
+① 本機跑測試（<code>pytest</code> 應 19 項通過）與假模型空跑。<br>
+② <code>scripts/run_nim_test.sh</code> 測 4 人小鎮，檢查中文報告中的對話與行為是否合理。<br>
+③ 用 Luna 試跑 4 人或 12 人 1–3 個模擬小時；比較 <code>GA_REASONING_LOW=none</code> 與 <code>low</code> 的花費、速度、格式錯誤率（<code>summarize_run.py</code> 有各類呼叫平均花費與秒數）。<br>
+④ Google Cloud：照 README 部署，先 <code>FAKE_LLM=1</code> 空跑確認 VM、存檔、備份正常。<br>
+⑤ 確認 Google Cloud 額度是否可用於 Vertex AI。</td>
+<td>使用者＋Codex（在使用者電腦與 GCP 上執行）</td></tr>
+<tr><td>第 2 週</td><td>與指導老師確定研究問題與指標；開發分析工具（居民訪談、社交網路與消息傳播、人設一致性）；若額度可用，加入 Vertex AI（Gemini）支援。</td><td>使用者定題；程式開發 Claude 或 Codex</td></tr>
+<tr><td>第 3–5 週</td><td>正式實驗：主實驗 12 人 × 50 天（Luna）；重複實驗（例如 Gemini 3 次 × 10 天）在雲端同時執行。</td><td>Codex 部署與監看</td></tr>
+<tr><td>第 6–8 週</td><td>分析資料、做圖表、撰寫論文；確認目標研討會截止日。</td><td>使用者主筆，Claude/Codex 協助</td></tr>
+</table>
+
+<h2>7. 給 Codex 的協作規則</h2>
+<div class="box">Claude 與 Codex 會在同一個 repo 輪流工作。以下規則讓雙方不會互相覆蓋或破壞已驗證的東西。</div>
+<ol>
+<li><b>分支：</b>從 <code>claude/nim-4-agents</code> 開新分支（例如 <code>codex/deploy-gcp</code>）。不要直接改 <code>claude/*</code> 分支，也不要直接推 <code>main</code>；要合併時開 PR，由使用者決定。</li>
+<li><b>金鑰：</b>絕不把任何 API Key 寫進檔案、設定檔、commit 或對話。GCP 用 <code>setup.sh</code> 的隱藏輸入存進 Secret Manager；本機用環境變數。<code>config.env</code> 已在 <code>.gitignore</code>。</li>
+<li><b>每次修改後</b>執行測試並確認全部通過：<pre>cd generative_agents/reverie &amp;&amp; ../.venv/bin/python -m pytest -q tests</pre></li>
+<li><b>請保持這些設計（改動前先與使用者確認）：</b>
+  <ul>
+  <li>動作描述維持英文（程式依賴 sleeping、bed、idle 等關鍵字與固定英文格式）。</li>
+  <li>當機的步驟不存檔；<code>FatalLLMError</code> 必須是 <code>BaseException</code>。</li>
+  <li>住家名稱含 <code>'s house</code> 時必須含居民姓氏（原版的進門規則）。</li>
+  <li>人物與地圖只改 <code>scripts/build_tw12.py</code> 後重新產生，不手改產出的 JSON。</li>
+  <li>新增提示詞函式時，<code>fake_cognition.py</code> 也要加對應的假回答（否則空跑會報錯）。</li>
+  <li>任何與原版的差異都補進 <code>NOTICE.md</code>（研究論文需要揭露）。</li>
+  </ul></li>
+<li><b>實驗紀錄：</b>每次真實執行（不含空跑）請在 <code>generative_agents/docs/RUN_LOG.md</code> 新增一列：日期、模擬名稱、初始設定、模型與思考設定、模擬天數、現實耗時、花費、結果與問題。這是之後寫論文的依據。</li>
+<li><b>交接：</b>結束一段工作時，在 PR 或 <code>RUN_LOG.md</code> 寫下做了什麼、驗證到哪裡、遇到什麼問題，讓下一位（Claude 或 Codex）能直接接手。</li>
+<li><b>不確定時先問使用者</b>，尤其是會花錢的操作（真實 API 長時間執行、建立大型雲端資源）。</li>
+</ol>
+
+<h2>8. 常用指令</h2>
+<h3>本機準備與測試</h3>
+<pre>git clone -b claude/nim-4-agents https://github.com/richie7p/ai-town-demo.git
+cd ai-town-demo/generative_agents
+python3 -m venv .venv
+.venv/bin/pip install -r reverie/requirements-sim.txt pytest
+cd reverie &amp;&amp; ../.venv/bin/python -m pytest -q tests &amp;&amp; cd ..</pre>
+<h3>免費空跑（不呼叫 API）</h3>
+<pre>cd reverie/backend_server
+../../.venv/bin/python headless.py --fork base_the_ville_tw4 --sim dry --days 1 --fake-llm</pre>
+<h3>NVIDIA NIM 測試（4 人、正常流速）</h3>
+<pre>export NVIDIA_API_KEY=nvapi-...      # 只在本機設定
+scripts/run_nim_test.sh              # 預設 7:00–13:00；scripts/run_nim_test.sh 360 只跑 1 小時
+SPEED=10 scripts/run_nim_test.sh     # 快 10 倍</pre>
+<h3>GPT-6 Luna 本機試跑</h3>
+<pre>export OPENAI_API_KEY=...
+.venv/bin/python scripts/check_api.py
+cd reverie/backend_server
+../../.venv/bin/python headless.py --fork base_the_ville_tw12 --sim luna-pilot --days 1 --max-steps 1080 --max-cost 5
+cd ../.. &amp;&amp; .venv/bin/python scripts/summarize_run.py luna-pilot</pre>
+<h3>Google Cloud</h3>
+<pre>cd deploy/gcp &amp;&amp; cp config.env.example config.env   # 填 PROJECT_ID、BUCKET
+./setup.sh        # 一次性；API Key 由使用者自己輸入
+./build.sh &amp;&amp; ./create_vm.sh
+./status.sh  ./logs.sh  ./stop.sh  ./resume.sh  ./update_env.sh  ./delete_vm.sh</pre>
+
+<h3>重要環境變數</h3>
+<table>
+<thead><tr><th style="width:30%">變數</th><th>說明</th></tr></thead>
+<tr><td><code>GA_API</code> / <code>GA_BASE_URL</code></td><td><code>responses</code>（OpenAI，預設）或 <code>chat</code>（NIM 等）；API 網址</td></tr>
+<tr><td><code>GA_MODEL</code></td><td>預設 <code>gpt-6-luna</code></td></tr>
+<tr><td><code>GA_REASONING_HIGH</code> / <code>_LOW</code></td><td>重要決策／例行判斷的思考程度，預設 <code>low</code> / <code>none</code></td></tr>
+<tr><td><code>GA_LANGUAGE</code></td><td><code>zh-TW</code>（預設）或 <code>en</code></td></tr>
+<tr><td><code>GA_EMBED_MODEL</code> / <code>_DIMENSIONS</code> / <code>_EXTRA_BODY</code></td><td>文字向量模型、長度（NIM 留空）、額外參數</td></tr>
+<tr><td><code>GA_MAX_RPM</code> / <code>GA_MAX_CONCURRENCY</code></td><td>每分鐘上限／同時呼叫數</td></tr>
+<tr><td><code>GA_SERVICE_TIER</code></td><td><code>flex</code> = 半價較慢</td></tr>
+<tr><td><code>GA_PRICE_*</code></td><td>花費計算用的價格（NIM 免費測試設 0）</td></tr>
+</table>
+<p class="small">設定檔中留空的變數一律視為使用預設值。</p>
+
+<h2>9. 主要風險</h2>
+<table>
+<thead><tr><th style="width:30%">風險</th><th>因應</th></tr></thead>
+<tr><td>真實模型格式錯誤多，行為品質差</td><td>NIM 與 Luna 試跑時檢查報告；必要時對個別任務調高思考程度（<code>GA_REASONING_OVERRIDES</code>）</td></tr>
+<tr><td>速度達不到 5 倍</td><td>試跑量測；可延長現實時間、改用 low、提高同時呼叫數，或拉長每步秒數（需改走路邏輯）</td></tr>
+<tr><td>超支</td><td>一律設定 <code>MAX_COST</code>；先短跑再長跑</td></tr>
+<tr><td>只跑一次無法下結論</td><td>重複實驗（Google Cloud 額度＋Gemini，若額度適用）</td></tr>
+<tr><td>研討會截止日</td><td>第 2 週前與老師確認目標會議與日期</td></tr>
+</table>
+
+<p class="small" style="margin-top:14px">文件原始檔：<code>generative_agents/docs/HANDOFF.html</code>（修改後可用 Chromium 重新輸出 PDF）。</p>
+</body>
+</html>
