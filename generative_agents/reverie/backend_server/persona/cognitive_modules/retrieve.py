@@ -188,10 +188,12 @@ def extract_relevance(persona, nodes, focal_pt):
   """
   focal_embedding = get_embedding(focal_pt)
 
+  # Modified: one matrix product instead of a Python loop (same cos_sim formula).
+  sims = persona.a_mem.embeddings.cosine([node.embedding_key for node in nodes],
+                                         focal_embedding)
   relevance_out = dict()
-  for count, node in enumerate(nodes): 
-    node_embedding = persona.a_mem.embeddings[node.embedding_key]
-    relevance_out[node.node_id] = cos_sim(node_embedding, focal_embedding)
+  for node, sim in zip(nodes, sims): 
+    relevance_out[node.node_id] = float(sim)
 
   return relevance_out
 
@@ -248,12 +250,8 @@ def new_retrieve(persona, focal_points, n_count=30):
                      + persona.scratch.relevance_w*relevance_out[key]*gw[1] 
                      + persona.scratch.importance_w*importance_out[key]*gw[2])
 
-    master_out = top_highest_x_values(master_out, len(master_out.keys()))
-    for key, val in master_out.items(): 
-      print (persona.a_mem.id_to_node[key].embedding_key, val)
-      print (persona.scratch.recency_w*recency_out[key]*1, 
-             persona.scratch.relevance_w*relevance_out[key]*1, 
-             persona.scratch.importance_w*importance_out[key]*1)
+    # Modified: removed a debug loop that printed every memory's score on
+    # each retrieval (tens of thousands of lines per call after a few weeks).
 
     # Extracting the highest x values.
     # <master_out> has the key of node.id and value of float. Once we get the 

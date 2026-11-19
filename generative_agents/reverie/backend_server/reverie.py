@@ -28,7 +28,7 @@ import os
 import shutil
 import traceback
 
-from selenium import webdriver
+# selenium import removed: it was never used and is not needed headless
 
 from global_methods import *
 from utils import *
@@ -270,7 +270,7 @@ class ReverieServer:
           outfile.write(json.dumps(s_mem, indent=2))
         print_tree(s_mem)
 
-      except:
+      except Exception:
         pass
 
       time.sleep(self.server_sleep * 10)
@@ -321,7 +321,7 @@ class ReverieServer:
           with open(curr_env_file) as json_file:
             new_env = json.load(json_file)
             env_retrieved = True
-        except: 
+        except Exception: 
           pass
       
         if env_retrieved: 
@@ -592,7 +592,7 @@ class ReverieServer:
 
         print (ret_str)
 
-      except:
+      except Exception:
         traceback.print_exc()
         print ("Error.")
         pass

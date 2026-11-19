@@ -1,4 +1,4 @@
-reverie/backend_server/utils.py
+.venv/
 frontend_server/settings/local.py
 storage/*
 static_dirs/*
@@ -99,4 +99,11 @@ ENV/
 .spyderproject
 
 # Rope project settings
-.ropeproject
+.ropeprojectdeploy/gcp/config.env
+deploy/gcp/.last_image
+
+# Third-party art downloaded by scripts/fetch_assets.sh (not redistributed)
+environment/frontend_server/static_dirs/assets/the_ville/visuals/
+environment/frontend_server/static_dirs/assets/characters/
+environment/frontend_server/static_dirs/assets/speech_bubble/
+environment/frontend_server/static_dirs/img/

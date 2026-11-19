@@ -1,0 +1,6 @@
+.venv
+**/__pycache__
+environment/frontend_server/static_dirs/assets/the_ville/visuals
+environment/frontend_server/static_dirs/assets/characters
+environment/frontend_server/compressed_storage
+environment/frontend_server/temp_storage

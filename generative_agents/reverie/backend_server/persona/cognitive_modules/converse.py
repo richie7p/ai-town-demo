@@ -34,7 +34,7 @@ def generate_agent_chat_summarize_ideas(init_persona,
     summarized_idea = run_gpt_prompt_agent_chat_summarize_ideas(init_persona,
                         target_persona, all_embedding_key_str, 
                         curr_context)[0]
-  except:
+  except Exception:
     summarized_idea = ""
   return summarized_idea
 

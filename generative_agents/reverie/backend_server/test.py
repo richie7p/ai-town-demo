@@ -32,7 +32,7 @@ def ChatGPT_request(prompt):
     )
     return completion["choices"][0]["message"]["content"]
   
-  except: 
+  except Exception: 
     print ("ChatGPT ERROR")
     return "ChatGPT ERROR"
 

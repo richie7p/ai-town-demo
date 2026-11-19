@@ -3,27 +3,30 @@ Author: Joon Sung Park (joonspk@stanford.edu)
 
 File: gpt_structure.py
 Description: Wrapper functions for calling OpenAI APIs.
+
+Modified: every request now goes through llm.py (GPT-6 Luna on the Responses
+API, with per-task reasoning effort, retries and cost accounting). Function
+names and signatures are unchanged so run_gpt_prompt.py works as before.
+The old "GPT-3" completion prompts are emulated: the model is told to
+continue the text and the original stop sequences are applied to its output.
 """
 import json
 import random
-import openai
 import time 
 
 from utils import *
-
-openai.api_key = openai_api_key
+from llm import FatalLLMError, get_llm
 
 def temp_sleep(seconds=0.1):
-  time.sleep(seconds)
+  # The original paused 0.1 s before each call to stay under rate limits;
+  # llm.py now handles rate limits with a concurrency cap and backoff.
+  pass
+
+def _chat(prompt):
+  return get_llm().complete(prompt, completion_style=False)
 
 def ChatGPT_single_request(prompt): 
-  temp_sleep()
-
-  completion = openai.ChatCompletion.create(
-    model="gpt-3.5-turbo", 
-    messages=[{"role": "user", "content": prompt}]
-  )
-  return completion["choices"][0]["message"]["content"]
+  return _chat(prompt)
 
 
 # ============================================================================
@@ -42,17 +45,10 @@ def GPT4_request(prompt):
   RETURNS: 
     a str of GPT-3's response. 
   """
-  temp_sleep()
-
   try: 
-    completion = openai.ChatCompletion.create(
-    model="gpt-4", 
-    messages=[{"role": "user", "content": prompt}]
-    )
-    return completion["choices"][0]["message"]["content"]
-  
-  except: 
-    print ("ChatGPT ERROR")
+    return _chat(prompt)
+  except Exception as exc: 
+    print ("ChatGPT ERROR", type(exc).__name__, exc)
     return "ChatGPT ERROR"
 
 
@@ -68,16 +64,10 @@ def ChatGPT_request(prompt):
   RETURNS: 
     a str of GPT-3's response. 
   """
-  # temp_sleep()
   try: 
-    completion = openai.ChatCompletion.create(
-    model="gpt-3.5-turbo", 
-    messages=[{"role": "user", "content": prompt}]
-    )
-    return completion["choices"][0]["message"]["content"]
-  
-  except: 
-    print ("ChatGPT ERROR")
+    return _chat(prompt)
+  except Exception as exc: 
+    print ("ChatGPT ERROR", type(exc).__name__, exc)
     return "ChatGPT ERROR"
 
 
@@ -114,7 +104,7 @@ def GPT4_safe_generate_response(prompt,
         print (curr_gpt_response)
         print ("~~~~")
 
-    except: 
+    except Exception: 
       pass
 
   return False
@@ -158,7 +148,7 @@ def ChatGPT_safe_generate_response(prompt,
         print (curr_gpt_response)
         print ("~~~~")
 
-    except: 
+    except Exception: 
       pass
 
   return False
@@ -184,7 +174,7 @@ def ChatGPT_safe_generate_response_OLD(prompt,
         print (curr_gpt_response)
         print ("~~~~")
 
-    except: 
+    except Exception: 
       pass
   print ("FAIL SAFE TRIGGERED") 
   return fail_safe_response
@@ -206,21 +196,14 @@ def GPT_request(prompt, gpt_parameter):
   RETURNS: 
     a str of GPT-3's response. 
   """
-  temp_sleep()
+  # engine / temperature / max_tokens / penalties belonged to the retired
+  # text-davinci models. Reasoning models choose their own sampling and spend
+  # output tokens on thinking, so only the stop sequences are kept.
   try: 
-    response = openai.Completion.create(
-                model=gpt_parameter["engine"],
-                prompt=prompt,
-                temperature=gpt_parameter["temperature"],
-                max_tokens=gpt_parameter["max_tokens"],
-                top_p=gpt_parameter["top_p"],
-                frequency_penalty=gpt_parameter["frequency_penalty"],
-                presence_penalty=gpt_parameter["presence_penalty"],
-                stream=gpt_parameter["stream"],
-                stop=gpt_parameter["stop"],)
-    return response.choices[0].text
-  except: 
-    print ("TOKEN LIMIT EXCEEDED")
+    return get_llm().complete(prompt, completion_style=True,
+                              stop=gpt_parameter.get("stop"))
+  except Exception as exc: 
+    print ("TOKEN LIMIT EXCEEDED", type(exc).__name__, exc)
     return "TOKEN LIMIT EXCEEDED"
 
 
@@ -273,12 +256,12 @@ def safe_generate_response(prompt,
   return fail_safe_response
 
 
-def get_embedding(text, model="text-embedding-ada-002"):
+def get_embedding(text, model=None):
+  # model is ignored; GA_EMBED_MODEL (default text-embedding-3-small) is used.
   text = text.replace("\n", " ")
   if not text: 
     text = "this is blank"
-  return openai.Embedding.create(
-          input=[text], model=model)['data'][0]['embedding']
+  return get_llm().embed(text)
 
 
 if __name__ == '__main__':

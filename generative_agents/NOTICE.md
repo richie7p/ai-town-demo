@@ -1,0 +1,57 @@
+# NOTICE
+
+This folder is a modified copy of **Generative Agents: Interactive Simulacra
+of Human Behavior** — <https://github.com/joonspk-research/generative_agents>,
+commit `fe05a71d3e4ed7d10bf68aa4eda6dd995ec070f4` — by Joon Sung Park,
+Joseph C. O'Brien, Carrie J. Cai, Meredith Ringel Morris, Percy Liang and
+Michael S. Bernstein, licensed under the Apache License 2.0 (see `LICENSE`).
+
+```
+@inproceedings{Park2023GenerativeAgents,
+  author = {Park, Joon Sung and O'Brien, Joseph C. and Cai, Carrie J. and Morris, Meredith Ringel and Liang, Percy and Bernstein, Michael S.},
+  title = {Generative Agents: Interactive Simulacra of Human Behavior},
+  year = {2023},
+  booktitle = {In the 36th Annual ACM Symposium on User Interface Software and Technology (UIST '23)},
+  series = {UIST '23}
+}
+```
+
+## Game art
+
+The map and character art were designed by **PixyMoon** (background) and
+**LimeZu** (furniture and interiors), credited by the original authors. The
+art is **not** redistributed here; `scripts/fetch_assets.sh` downloads it from
+the upstream repository when the browser viewer is needed.
+
+## Files left out of the import
+
+The 1.1 GB of sample simulation runs, the 3-person base simulation, the
+compressed demo, `db.sqlite3`, `cover.png` and the art folders above.
+
+## Changes in this fork
+
+- `reverie/backend_server/llm.py` (new): all model access, using GPT-6 Luna
+  through the OpenAI Responses API, reasoning effort per prompt type, retries,
+  rate limiting, cost accounting, and a fatal-error type that stops a run.
+- `persona/prompt_template/gpt_structure.py`: same functions and signatures,
+  now routed through `llm.py`; completion-style prompts are emulated with the
+  original stop sequences.
+- `persona/prompt_template/run_gpt_prompt.py`: every `run_gpt_*` function is
+  tagged with its task name (appended block at the end of the file).
+- `utils.py` (new, committed): settings from environment variables; no key in
+  the file.
+- All bare `except:` clauses became `except Exception:` (behaviour unchanged
+  for ordinary errors; lets fatal errors and Ctrl-C through).
+- `reverie.py`: unused selenium import removed.
+- `persona/memory_structures/embedding_store.py` (new) and
+  `associative_memory.py`: embeddings kept in a NumPy matrix and saved as
+  `.npy`; old `embeddings.json` still loads.
+- `persona/cognitive_modules/retrieve.py`: relevance computed with one matrix
+  product (same cosine formula); a debug loop printing every memory's score
+  was removed.
+- `reverie/backend_server/parallel_step.py`, `headless.py` (new): browserless
+  runner with parallel personas, atomic checkpoints, resume, compressed
+  movement logs, budget limit and graceful stop.
+- `reverie/backend_server/fake_cognition.py` (new): offline stand-ins for the
+  prompt functions, for tests and free dry runs.
+- `reverie/tests/`, `deploy/gcp/`, `Dockerfile`, `scripts/` (new).

@@ -14,6 +14,7 @@ import json
 import datetime
 
 from global_methods import *
+from persona.memory_structures.embedding_store import EmbeddingStore
 
 
 class ConceptNode: 
@@ -62,7 +63,8 @@ class AssociativeMemory:
     self.kw_strength_event = dict()
     self.kw_strength_thought = dict()
 
-    self.embeddings = json.load(open(f_saved + "/embeddings.json"))
+    # Modified: NumPy-backed store (see embedding_store.py); reads old JSON too.
+    self.embeddings = EmbeddingStore.load(f_saved)
 
     nodes_load = json.load(open(f_saved + "/nodes.json"))
     for count in range(len(nodes_load.keys())): 
@@ -146,8 +148,7 @@ class AssociativeMemory:
     with open(out_json+"/kw_strength.json", "w") as outfile:
       json.dump(r, outfile)
 
-    with open(out_json+"/embeddings.json", "w") as outfile:
-      json.dump(self.embeddings, outfile)
+    self.embeddings.save(out_json)
 
 
   def add_event(self, created, expiration, s, p, o, 
@@ -208,7 +209,7 @@ class AssociativeMemory:
     try: 
       if filling: 
         depth += max([self.id_to_node[i].depth for i in filling])
-    except: 
+    except Exception: 
       pass
 
     # Creating the <ConceptNode> object.

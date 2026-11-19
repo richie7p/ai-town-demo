@@ -1,0 +1,4 @@
+# Headless simulation only (the original requirements.txt also covers the
+# Django frontend and analysis tools from 2023).
+numpy==2.5.5
+openai==3.55.1
