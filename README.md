@@ -2,6 +2,8 @@
 
 > [!TIP]
 > **新版 AI Town v6.0 Interactive DEMO** 在 [`v6/`](v6/README.md)：React + TypeScript + Phaser 3 前端、Python FastAPI 後端，六位居民有需求、金錢、工作與目標，會聊天、邀約、合作，並遇到設備故障、市場缺貨、社區活動；預設規則型 Agent，可選用 Claude（LLM Mode）。以下是舊版（v0.9）的說明。
+>
+> **原版 Generative Agents 修改版**（16 位居民、100 天、GPT-6 Luna、部署到 Google Cloud）在 [`generative_agents/`](generative_agents/README.zh-TW.md)。
 
 八位居民合租一間房子，在一座像素小鎮裡過十天：早上排隊洗澡、在廚房煮飯一起吃、白天去工坊做東西或到攝影室拍照、在咖啡館聊天、傍晚回家吃晚餐、在客廳看電視，夜深了各自回房間睡覺。你可以播放、暫停、倒回任何一刻，看每個人當下想做什麼、餓不餓、累不累、記得什麼、和誰有了交集，也可以化身訪客走進房子裡看看。
 
